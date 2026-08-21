@@ -1,5 +1,7 @@
 # MuJoCo-Warp Conditional Graphs on AMD ROCm
 
+[![Validate public bundle](https://github.com/Ethan-Chen-plus/mujoco-warp-amd-conditional-graph/actions/workflows/validate.yml/badge.svg?branch=main)](https://github.com/Ethan-Chen-plus/mujoco-warp-amd-conditional-graph/actions/workflows/validate.yml)
+
 An AMD-first, reproducible porting study for the MuJoCo-Warp Newton constraint
 solver. The repository contains the modified Warp and MuJoCo-Warp source
 snapshots, the HIP graph microbenchmark, the AMD395 benchmark protocol, frozen
