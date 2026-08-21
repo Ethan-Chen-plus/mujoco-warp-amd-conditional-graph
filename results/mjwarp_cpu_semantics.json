@@ -1,0 +1,30 @@
+{
+  "schema": "mujoco-warp-amd-cpu-semantics-v1",
+  "execution": "cpu_semantics_only",
+  "device": "cpu",
+  "python": "3.11.15",
+  "mujoco_xml": "upstream/mujoco_warp/mujoco_warp/test_data/humanoid/humanoid.xml",
+  "worlds": 2,
+  "iterations": 10,
+  "warmup": 4,
+  "steps": 20,
+  "compatibility_shim_device_is_hip": true,
+  "variants": {
+    "fixed_iteration": {
+      "graph_conditional": false,
+      "p50_step_ms": 3.0563510954380035,
+      "p95_step_ms": 3.1551988795399666,
+      "mean_step_ms": 3.0696943402290344
+    },
+    "graph_conditional_path": {
+      "graph_conditional": true,
+      "p50_step_ms": 1.6979617066681385,
+      "p95_step_ms": 1.896627712994814,
+      "mean_step_ms": 1.753641408868134
+    }
+  },
+  "max_abs_qpos_error": 0.0,
+  "max_abs_qvel_error": 0.0,
+  "max_abs_time_error": 0.0,
+  "numerically_equivalent": true
+}

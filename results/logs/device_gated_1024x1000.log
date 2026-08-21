@@ -1,0 +1,6 @@
+/home/aup/tmp/mujoco-warp-amd-conditional-graph-20260821/upstream/mujoco_warp/mujoco_warp/_src/io.py:146: UserWarning: HIP/ROCm device-gated conditional-while emulation is enabled. The solver will use one fixed-length HIP graph replay; native hipGraphConditionalHandle nodes are not available.
+  warp_util.check_toolkit_driver()
+Warp CUDA error 1: invalid argument (in function wp_memset_device, /home/aup/tmp/mujoco-warp-amd-conditional-graph-20260821/upstream/warp/warp/native/warp.cu:1267)
+Warp CUDA error 1: invalid argument (in function wp_memset_device, /home/aup/tmp/mujoco-warp-amd-conditional-graph-20260821/upstream/warp/warp/native/warp.cu:1267)
+Warp CUDA error 1: invalid argument (in function wp_memset_device, /home/aup/tmp/mujoco-warp-amd-conditional-graph-20260821/upstream/warp/warp/native/warp.cu:1267)
+{"jit_duration": 0.19462581630796194, "run_time": 1.5202743196859956, "steps_per_second": 673562.6503324095, "converged_worlds": 1024, "model_memory": 52939, "data_memory": 62894088, "total_memory": 14994636800, "ncon_mean": 0.0, "ncon_p95": 0.0, "nefc_mean": 2.923, "nefc_p95": 4.0, "solver_niter_mean": 1.042751953125, "solver_niter_p95": 1.0}

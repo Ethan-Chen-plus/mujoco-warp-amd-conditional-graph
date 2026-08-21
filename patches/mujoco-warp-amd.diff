@@ -1,0 +1,273 @@
+diff --git a/mujoco_warp/_src/cli.py b/mujoco_warp/_src/cli.py
+index d794aa1..59fc9cb 100644
+--- a/mujoco_warp/_src/cli.py
++++ b/mujoco_warp/_src/cli.py
+@@ -15,6 +15,7 @@
+ 
+ """Shared utilities and flags for MJWarp CLI tools."""
+ 
++import os
+ import time
+ from typing import Callable, Tuple, get_type_hints
+ 
+@@ -205,15 +206,34 @@ def unroll(
+   with wp.ScopedDevice(wp.get_device(DEVICE.value)):
+     with warp_util.EventTracer(enabled=EVENT_TRACE.value) as tracer:
+       jit_beg = time.perf_counter()
+-      with wp.ScopedCapture() as capture:
++      # The AMD Warp runtime currently exposes HIP graph capture, but the
++      # eager solver path still contains multi-stream synchronizations that
++      # cannot execute inside a capture. Keep the baseline genuinely eager;
++      # retain capture only for the opt-in device-gated conditional-while
++      # path, which is the path being measured as a single graph replay.
++      hip_conditional_emulation = (
++        wp.get_device().is_hip and os.environ.get("WP_HIP_CONDITIONAL_EMULATION", "0") == "1"
++      )
++      if wp.get_device().is_hip and not hip_conditional_emulation:
++        capture = None
+         fn(*fn_args)
++      else:
++        if hip_conditional_emulation:
++          # Populate cached solver contexts and all lazy scratch buffers before
++          # entering HIP capture. Allocating them inside capture is unsupported
++          # by the ROCm runtime and can produce invalid graph launches at scale.
++          fn(*fn_args)
++          wp.synchronize()
++        with wp.ScopedCapture() as capture_scope:
++          fn(*fn_args)
++        capture = capture_scope
+       jit_end = time.perf_counter()
+ 
+       # ROCm/HIP: wp.ScopedCapture is a no-op (capture.graph is None) because
+       # the ROCm Warp fork does not implement CUDA-graph capture. Fall back to
+       # re-invoking fn each iteration in Python; this costs per-step launch
+       # overhead but keeps the benchmark functional on HIP devices.
+-      use_graph_replay = capture.graph is not None
++      use_graph_replay = capture is not None and capture.graph is not None
+ 
+       for i in range(NSTEP.value):
+         with wp.ScopedStream(wp.get_stream()):
+diff --git a/mujoco_warp/_src/forward.py b/mujoco_warp/_src/forward.py
+index 85e7229..0d21f55 100644
+--- a/mujoco_warp/_src/forward.py
++++ b/mujoco_warp/_src/forward.py
+@@ -665,7 +665,15 @@ def fwd_position(m: Model, d: Data, factorize: bool = True):
+   # when hipGraph is active to allow full step capture on single stream.
+   import os as _fwd_os
+   _hip_graph_mode = _fwd_os.environ.get("WP_HIP_GRAPH_ENABLE", "0") == "1"
++  _hip_single_stream = _fwd_os.environ.get("MJW_HIP_SINGLE_STREAM", "0") == "1"
++  # HIP graph capture is single-stream on the current ROCm Warp runtime.
++  # Secondary-stream synchronization is illegal while capture is active, which
++  # also applies when the solver's emulated capture_while is nested inside a
++  # caller-owned ScopedCapture.
++  _graph_capture_active = bool(getattr(wp.get_device(), "is_capturing", False))
+   if (not _hip_graph_mode and
++      not _hip_single_stream and
++      not _graph_capture_active and
+       m.opt.run_collision_detection and
+       hasattr(d, "_stream_collision") and hasattr(d, "_stream_secondary")):
+     # Stream A: collision (reads geom_xpos written by kinematics — safe now)
+@@ -1174,9 +1182,9 @@ def _qfrc_actuator_gravcomp_limits(
+ def fwd_actuation(m: Model, d: Data):
+   """Actuation-dependent computations."""
+   if not m.nu or (m.opt.disableflags & DisableBit.ACTUATION):
+-    d.act_dot.zero_()
+-    d.qfrc_actuator.zero_()
+-    d.actuator_force.zero_()
++    _zero_if_nonempty(d.act_dot)
++    _zero_if_nonempty(d.qfrc_actuator)
++    _zero_if_nonempty(d.actuator_force)
+     return
+ 
+   # read delayed ctrl (or direct copy if no delay)
+@@ -1248,7 +1256,7 @@ def fwd_actuation(m: Model, d: Data):
+     )
+ 
+   # TODO(team): optimize performance
+-  d.qfrc_actuator.zero_()
++  _zero_if_nonempty(d.qfrc_actuator)
+   wp.launch(
+     _qfrc_actuator,
+     dim=(d.nworld, m.nu),
+@@ -1325,13 +1333,13 @@ def forward(m: Model, d: Data):
+   energy = m.opt.enableflags & EnableBit.ENERGY
+ 
+   fwd_position(m, d, factorize=False)
+-  d.sensordata.zero_()
++  _zero_if_nonempty(d.sensordata)
+   sensor.sensor_pos(m, d)
+   if energy:
+     if m.sensor_e_potential == 0:  # not computed by sensor
+       sensor.energy_pos(m, d)
+   else:
+-    d.energy.zero_()
++    _zero_if_nonempty(d.energy)
+ 
+   fwd_velocity(m, d)
+   sensor.sensor_vel(m, d)
+@@ -1364,6 +1372,12 @@ def _step_body(m: Model, d: Data):
+     raise NotImplementedError(f"integrator {m.opt.integrator} not implemented.")
+ 
+ 
++def _zero_if_nonempty(buf) -> None:
++  """Avoid invalid HIP memset calls for optional zero-sized arrays."""
++  if getattr(buf, "size", 0):
++    buf.zero_()
++
++
+ def _hip_graph_capture_disabled(m: Model, d: Data) -> bool:
+   """Returns True if hipGraph capture is not possible for this configuration."""
+   if m.callback.control or m.callback.act_dyn or m.callback.act_gain or m.callback.act_bias:
+diff --git a/mujoco_warp/_src/io.py b/mujoco_warp/_src/io.py
+index 7f08370..b55ee3b 100644
+--- a/mujoco_warp/_src/io.py
++++ b/mujoco_warp/_src/io.py
+@@ -259,9 +259,10 @@ def put_model(mjm: mujoco.MjModel) -> types.Model:
+   opt.ls_parallel_min_step = 1.0e-6  # TODO(team): determine good default setting
+   opt.broadphase = types.BroadphaseType.NXN
+   opt.broadphase_filter = types.BroadphaseFilter.PLANE | types.BroadphaseFilter.SPHERE | types.BroadphaseFilter.OBB
+-  # CUDA graph conditional nodes are unavailable on HIP/ROCm and on CUDA toolkits < 12.4.
+-  # Default to True only when Warp reports the feature is supported on the active device.
+-  opt.graph_conditional = bool(wp.is_conditional_graph_supported())
++  # Native CUDA conditional nodes are unavailable on the AMD target.  The
++  # opt-in HIP compatibility backend uses one graph with device-gated solver
++  # kernels and is safe for this solver path only.
++  opt.graph_conditional = bool(wp.is_conditional_graph_supported() or wp.is_conditional_graph_emulated())
+   # AMD Opt C: reduce linesearch iterations for HIP/ROCm devices.
+   # MuJoCo default is ls_iterations=50, chosen for CPU float64 precision.
+   # On AMD GPU with float32 + early-exit solver (1-2 Newton iters typical),
+@@ -1537,6 +1538,11 @@ def put_data(
+     # crashed the first captured step (see solver._solve). Allocating it eagerly
+     # in put_data guarantees it exists before capture begins.
+     d._nsolving_host = wp.empty(1, dtype=int, device="cpu", pinned=True)
++    # Keep conditional-solver temporaries outside HIP graph capture. The
++    # device counter is reset by a captured kernel at the start of each step.
++    d._hip_nsolving = wp.zeros((1,), dtype=int)
++    _ls_width = int(getattr(mjm.opt, "ls_iterations", 0)) if getattr(mjm.opt, "ls_parallel", False) else 0
++    d._hip_step_size_cost = wp.empty((nworld, _ls_width), dtype=float)
+ 
+   return d
+ 
+diff --git a/mujoco_warp/_src/solver.py b/mujoco_warp/_src/solver.py
+index 92caca4..23c1539 100644
+--- a/mujoco_warp/_src/solver.py
++++ b/mujoco_warp/_src/solver.py
+@@ -41,6 +41,26 @@ wp.set_module_options({"enable_backward": False})
+ _BLOCK_CHOLESKY_DIM = 32
+ 
+ 
++@wp.kernel
++def _zero_float_2d(out: wp.array2d[float]):
++  i, j = wp.tid()
++  out[i, j] = 0.0
++
++
++@wp.kernel
++def _zero_float_3d(out: wp.array3d[float]):
++  i, j, k = wp.tid()
++  out[i, j, k] = 0.0
++
++
++def _zero_solver_buffer(buf):
++  """Zero a cached solver buffer with a graph-capturable kernel."""
++  if len(buf.shape) == 2 and all(size > 0 for size in buf.shape):
++    wp.launch(_zero_float_2d, dim=buf.shape, outputs=[buf])
++  elif len(buf.shape) == 3 and all(size > 0 for size in buf.shape):
++    wp.launch(_zero_float_3d, dim=buf.shape, outputs=[buf])
++
++
+ def create_inverse_context(m: types.Model, d: types.Data) -> InverseContext:
+   """Create an InverseContext with allocated workspace arrays.
+ 
+@@ -3397,6 +3417,13 @@ def _solver_iteration(
+   )
+ 
+ 
++@wp.kernel
++def _reset_nsolving(value: int, nsolving_out: wp.array[int]):
++  """Reset the device-side active-world counter inside a captured graph."""
++  if wp.tid() == 0:
++    nsolving_out[0] = value
++
++
+ def init_context(m: types.Model, d: types.Data, ctx: SolverContext | InverseContext, grad: bool = True):
+   # initialize some efc arrays
+   wp.launch(
+@@ -3473,9 +3500,15 @@ def _solve(m: types.Model, d: types.Data, ctx: SolverContext):
+     outputs=[ctx.search, ctx.search_dot],
+   )
+ 
+-  step_size_cost = wp.empty((d.nworld, m.opt.ls_iterations if m.opt.ls_parallel else 0), dtype=float)
++  step_size_cost = getattr(d, "_hip_step_size_cost", None)
++  if step_size_cost is None:
++    step_size_cost = wp.empty((d.nworld, m.opt.ls_iterations if m.opt.ls_parallel else 0), dtype=float)
+ 
+-  nsolving = wp.full(shape=(1,), value=d.nworld, dtype=int)
++  nsolving = getattr(d, "_hip_nsolving", None)
++  if nsolving is None:
++    nsolving = wp.full(shape=(1,), value=d.nworld, dtype=int)
++  else:
++    wp.launch(_reset_nsolving, dim=1, inputs=[d.nworld], outputs=[nsolving])
+   if m.opt.iterations != 0 and m.opt.graph_conditional:
+     # Note: the iteration kernel (indicated by while_body) is repeatedly launched
+     # as long as condition_iteration is not zero.
+@@ -3485,7 +3518,14 @@ def _solve(m: types.Model, d: types.Data, ctx: SolverContext):
+     # becomes zero and all worlds are marked as converged to avoid an infinite loop.
+     # note: we only launch the iteration kernel if everything is not done
+     wp.capture_while(
+-      nsolving, while_body=_solver_iteration, m=m, d=d, ctx=ctx, step_size_cost=step_size_cost, nsolving=nsolving
++      nsolving,
++      while_body=_solver_iteration,
++      max_iterations=m.opt.iterations,
++      m=m,
++      d=d,
++      ctx=ctx,
++      step_size_cost=step_size_cost,
++      nsolving=nsolving,
+     )
+   elif m.opt.iterations != 0 and wp.get_device().is_hip:
+     # AMD: self-implemented hipGraphConditionalHandle equivalent.
+@@ -3563,6 +3603,7 @@ def _solve_islands(m: types.Model, d: types.Data, ctx: IslandSolverContext):
+     wp.capture_while(
+       nsolving,
+       while_body=_solver_iteration_island,
++      max_iterations=m.opt.iterations,
+       m=m,
+       d=d,
+       ctx=ctx,
+diff --git a/mujoco_warp/_src/warp_util.py b/mujoco_warp/_src/warp_util.py
+index 32834ee..0d72cb6 100644
+--- a/mujoco_warp/_src/warp_util.py
++++ b/mujoco_warp/_src/warp_util.py
+@@ -147,16 +147,24 @@ def check_toolkit_driver():
+   if not device.is_cuda:
+     return
+ 
+-  # HIP/ROCm devices do not (yet) expose conditional graph nodes; this is an
+-  # architectural limitation rather than a misconfigured CUDA toolkit. Warn
+-  # informationally and let io.put_model() default graph_conditional to False.
++  # HIP/ROCm devices do not expose the CUDA conditional-node ABI.  The
++  # opt-in device-gated compatibility mode is useful for MuJoCo-Warp's solver,
++  # but it is deliberately reported separately from native support.
+   if getattr(device, "is_hip", False):
+-    if not wp.is_conditional_graph_supported():
++    if wp.is_conditional_graph_emulated():
++      warnings.warn(
++        "HIP/ROCm device-gated conditional-while emulation is enabled. "
++        "The solver will use one fixed-length HIP graph replay; native "
++        "hipGraphConditionalHandle nodes are not available.",
++        stacklevel=2,
++      )
++    elif not wp.is_conditional_graph_supported():
+       warnings.warn(
+         "HIP/ROCm device detected: CUDA graph conditional nodes are not "
+-        "supported on this backend. Model.opt.graph_conditional will be "
+-        "disabled automatically; the solver falls back to a Python for-loop "
+-        "around the iteration kernel.",
++        "supported on this backend. Model.opt.graph_conditional will remain "
++        "disabled; the solver falls back to a Python for-loop around the "
++        "iteration kernel. Set WP_HIP_CONDITIONAL_EMULATION=1 to use the "
++        "device-gated single-graph solver path.",
+         stacklevel=2,
+       )
+     return

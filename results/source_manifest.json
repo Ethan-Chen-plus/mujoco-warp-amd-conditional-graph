@@ -1,0 +1,197 @@
+{
+  "schema": "mujoco-warp-amd-source-manifest-v1",
+  "upstream": {
+    "mujoco_warp": {
+      "repository": "https://github.com/AMD-Ecosystem/mujoco_warp",
+      "ref": "amd-integration",
+      "commit": "9229bb9d1a698c9464df862a915b46899720338c"
+    },
+    "warp": {
+      "repository": "https://github.com/AMD-Ecosystem/warp",
+      "ref": "fet/hip-graph-capture",
+      "commit": "8ca65dd5f8a444785408ecaa956bac0d2c427d6f"
+    }
+  },
+  "files": [
+    {
+      "path": "hip/hip_graph_benchmark.cpp",
+      "sha256": "2f93a5217bc328139a679694a6142a5f1d40bfc7f0169240d02bfd39aa72d024",
+      "bytes": 15176
+    },
+    {
+      "path": "scripts/check_mjwarp_import.py",
+      "sha256": "1ac0f7fe4ec392109dcec00a69dc65170e06b08aa2b709abbde4d6019fe7ab8a",
+      "bytes": 1694
+    },
+    {
+      "path": "scripts/collect_mjwarp_benchmark.py",
+      "sha256": "fb8ba8244c98195bb2360403248f2353fe8d5565aceb22368db443424ad61b13",
+      "bytes": 3587
+    },
+    {
+      "path": "scripts/inspect_mjwarp_source.py",
+      "sha256": "8bea655ebde791ee81005dadd6d8925817e89d2f38eae0f49b70bef4a0a507b2",
+      "bytes": 4094
+    },
+    {
+      "path": "scripts/inspect_mjwarp_state.py",
+      "sha256": "1f50619e761825150be61e08f49748533d75e439931d7812bf542f344edca0e3",
+      "bytes": 2097
+    },
+    {
+      "path": "scripts/run_capability_probe.py",
+      "sha256": "a41dcbf8f4f6748e83276b96856cf1a671c21bc63fc2993a9d562bfa3742117b",
+      "bytes": 4954
+    },
+    {
+      "path": "scripts/run_cpu_reference.py",
+      "sha256": "dee3801365a10f2aa184e6486c06ed6b03781cb0fb83a4e78439711ec7c05b64",
+      "bytes": 3441
+    },
+    {
+      "path": "scripts/run_mjwarp_semantics.py",
+      "sha256": "55bc33047b201820c18967531d39b5990afcd14582406b223399997ceb446474",
+      "bytes": 5105
+    },
+    {
+      "path": "scripts/test_hip_conditional_while_emulation.py",
+      "sha256": "dfc3aa220f0f07e8234941cf5233ab5e56917b8a1230555bf7524681d7f739f8",
+      "bytes": 3371
+    },
+    {
+      "path": "scripts/validate_public_bundle.py",
+      "sha256": "029c92acd58d712967411670bd0f188065d011c43aa220bc6023e9e9da080dbb",
+      "bytes": 4558
+    },
+    {
+      "path": "scripts/warp_gpu_smoke.py",
+      "sha256": "2376f7c4c1db002a08402c84e6149dfe3f0ebf0bdd2f47e4e564fb74635493bf",
+      "bytes": 2277
+    },
+    {
+      "path": "scripts/write_manifest.py",
+      "sha256": "27de5387242a833ba9bb83d7c74503f26baa726f963f8971085a860bc53ce67c",
+      "bytes": 4184
+    },
+    {
+      "path": "scripts/bootstrap_amd395_env.sh",
+      "sha256": "eb5936a6bc7929561bb396704b637eef0db4df9a1d36b0f1057f572b5c14b0c9",
+      "bytes": 1853
+    },
+    {
+      "path": "scripts/build_hip_benchmark.sh",
+      "sha256": "84e2eae316da25c9dcb207f4b27aeebf3e35ce0e2c26d73e5d3757428de13e19",
+      "bytes": 3683
+    },
+    {
+      "path": "scripts/run_mjwarp_amd_benchmark.sh",
+      "sha256": "7461e096fd1ededdcdbac9e4c60985915729eb497df30bfa4555d2f1023aa706",
+      "bytes": 1608
+    },
+    {
+      "path": "scripts/run_rocm714_benchmark.sh",
+      "sha256": "747cd7fcfd3fd12424c5806b0a0aecb9ef4c3e5f73b116195db58de1006bb7ba",
+      "bytes": 1785
+    },
+    {
+      "path": "upstream/mujoco_warp/mujoco_warp/_src/cli.py",
+      "sha256": "755d31cf812ac9f1e6e165a2e4d4572c45bf80ae8182face3c5f5d9ef1f2e8ce",
+      "bytes": 9993
+    },
+    {
+      "path": "upstream/mujoco_warp/mujoco_warp/_src/forward.py",
+      "sha256": "df6b846e970dad2750cbb2c060c3200825711fa204203dd04493d5e4a4b3ec43",
+      "bytes": 55782
+    },
+    {
+      "path": "upstream/mujoco_warp/mujoco_warp/_src/io.py",
+      "sha256": "4677545c415cad7512eac128a286cf8f9bf3d133ce40ec1af41a75639e506f8c",
+      "bytes": 125246
+    },
+    {
+      "path": "upstream/mujoco_warp/mujoco_warp/_src/solver.py",
+      "sha256": "671b5735ca8b5d173e3542ea47a5d95d0a5aa9350d0522bfcf2b412972d80280",
+      "bytes": 167156
+    },
+    {
+      "path": "upstream/mujoco_warp/mujoco_warp/_src/warp_util.py",
+      "sha256": "f36832bf13388188dd42802ce61862835e9e44cb73be7aea872cee8791a6a1cb",
+      "bytes": 5886
+    },
+    {
+      "path": "upstream/warp/warp/_src/context.py",
+      "sha256": "f6be66a12fc32c6148d78926cfb01114dc069f9fa62ca9ec7766b537cb13ec55",
+      "bytes": 487230
+    },
+    {
+      "path": "upstream/warp/warp/__init__.py",
+      "sha256": "bef45263cb4cb404f86313f1339acda8744e81981a2ff583b3be448bfb3c236e",
+      "bytes": 18253
+    },
+    {
+      "path": "results/hip_execution_attempt.txt",
+      "sha256": "f05a54116ffdecfbab4fdbb4414dfb5e7e9df96a0a69c23adb7499e4426087af",
+      "bytes": 474
+    },
+    {
+      "path": "results/hip_execution_attempt_rocm714.txt",
+      "sha256": "b08a0fb66fef7a4c67f8960187d95db60bbcbe8b9525238f43e7795b645038a2",
+      "bytes": 799
+    },
+    {
+      "path": "results/hip_humanoid-contact_rocm721.json",
+      "sha256": "5802bf4b54a5cf64b349218fcbf537268a55a8108ce01f8859f7e2af03db705a",
+      "bytes": 1389
+    },
+    {
+      "path": "results/warp_gpu_smoke_rocm721.json",
+      "sha256": "9d55e88f9deb5f9673e8175ed9c29fa2b7d3f9ee0d165f4f41319f9f46d85985",
+      "bytes": 383
+    },
+    {
+      "path": "results/mujoco_warp_import_rocm721.json",
+      "sha256": "d93f0361157e331e8df794695eada1865b83c8d6d71b390e6ce4f9373fc00b72",
+      "bytes": 360
+    },
+    {
+      "path": "results/mujoco_warp_import_rocm721_py312.json",
+      "sha256": "bcc8768357d2bec729878da1a71953cf3411f5c94cfa4315403352e4100e6e38",
+      "bytes": 366
+    },
+    {
+      "path": "results/mjwarp_cpu_semantics.json",
+      "sha256": "8e99d7d15c580b32eb374f5dd21004f7d612f53bc74f8259a39db6bd75ea9256",
+      "bytes": 846
+    },
+    {
+      "path": "results/mjwarp_humanoid_conditional_rocm721.json",
+      "sha256": "dc766c14eb61327974dba1fd040164dd59c723b1e0fb190519e7a5f853a50749",
+      "bytes": 2956
+    },
+    {
+      "path": "results/mjwarp_humanoid_conditional_rocm721_revalidation.json",
+      "sha256": "5fb496cc1ab260065953d242bb468a38ce6a931a77643d24c7d680d01d126793",
+      "bytes": 2830
+    },
+    {
+      "path": "results/mjwarp_cpu_semantics.json",
+      "sha256": "8e99d7d15c580b32eb374f5dd21004f7d612f53bc74f8259a39db6bd75ea9256",
+      "bytes": 846
+    },
+    {
+      "path": "results/capability_probe.json",
+      "sha256": "f0ba640684832549464f1691f82d6b4b3895a9d1475b72dd2aeecef417831430",
+      "bytes": 1569
+    },
+    {
+      "path": "results/capability_probe_rocm714.json",
+      "sha256": "c54a24d1d4cb2c964fbcb64a25abd494086461f49fda271c69f70dcc90bc025c",
+      "bytes": 2009
+    },
+    {
+      "path": "results/capability_probe_rocm721.json",
+      "sha256": "987df2a71880d8a451557ffc111e2985cb9717fa442262ae9032aff5822d3e0c",
+      "bytes": 5138
+    }
+  ]
+}

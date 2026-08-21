@@ -1,0 +1,20 @@
+name: Validate public bundle
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  cpu-visible-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile helper scripts
+        run: python -m py_compile scripts/*.py
+      - name: Check shell syntax
+        run: bash -n scripts/*.sh
+      - name: Validate frozen evidence bundle
+        run: python scripts/validate_public_bundle.py

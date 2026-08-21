@@ -1,0 +1,11 @@
+{
+  "schema": "mujoco-warp-amd-import-probe-v1",
+  "python": "3.12.3",
+  "mujoco_distribution": "3.4.0",
+  "mujoco_warp_distribution": "3.8.1",
+  "mujoco_module_version": "3.4.0",
+  "mujoco_import": "ok",
+  "mujoco_warp_import": "error",
+  "mujoco_warp_error_type": "AttributeError",
+  "mujoco_warp_error": "module 'mujoco' has no attribute 'mjtProjection'"
+}

@@ -1,0 +1,55 @@
+{
+  "schema": "mujoco-warp-amd-capability-v1",
+  "root": "/home/aup/tmp/mujoco-warp-amd-conditional-graph-20260821",
+  "user": {
+    "uid": 1000,
+    "groups": [
+      4,
+      20,
+      24,
+      27,
+      30,
+      44,
+      46,
+      100,
+      114,
+      984,
+      992,
+      1000
+    ]
+  },
+  "devices": {
+    "kfd_exists": true,
+    "kfd_read_write": true,
+    "render_nodes": [
+      "/dev/dri/renderD128"
+    ],
+    "render_read_write": {
+      "/dev/dri/renderD128": true
+    }
+  },
+  "tools": {
+    "hipcc": "/opt/rocm/bin/hipcc",
+    "rocminfo": "/opt/rocm/bin/rocminfo"
+  },
+  "rocm_roots": [
+    "/opt/rocm"
+  ],
+  "headers": {
+    "checked": [
+      "/opt/rocm/include/hip/hip_runtime_api.h",
+      "/opt/rocm/include/hip/hip_runtime.h"
+    ],
+    "conditional_symbols": [],
+    "conditional_graph_api_detected": false
+  },
+  "rocminfo": {
+    "returncode": 0,
+    "output_head": "\u001b[37mROCk module is loaded\u001b[0m\n=====================    \nHSA System Attributes    \n=====================    \nRuntime Version:         1.18\nRuntime Ext Version:     1.15\nSystem Timestamp Freq.:  1000.000000MHz\nSig. Max Wait Duration:  18446744073709551615 (0xFFFFFFFFFFFFFFFF) (timestamp count)\nMachine Model:           LARGE                              \nSystem Endianness:       LITTLE                             \nMwaitx:                  DISABLED\nXNACK enabled:           NO\nDMAbuf Support:          YES\nVMM Support:             YES\n\n==========               \nHSA Agents               \n==========               \n*******                  \nAgent 1                  \n*******                  \n  Name:                    AMD RYZEN AI MAX+ 395 w/ Radeon 8060S\n  Uuid:                    CPU-XX                             \n  Marketing Name:          AMD RYZEN AI MAX+ 395 w/ Radeon 8060S\n  Vendor Name:             CPU                                \n  Feature:                 None specified                     \n  Profile:                 FULL_PROFILE                       \n  Float Round Mode:        NEAR                               \n  Max Queue Number:        0(0x0)                             \n  Queue Min Size:          0(0x0)                             \n  Queue Max Size:          0(0x0)                             \n  Queue Type:              MULTI                              \n  Node:                    0                                  \n  Device Type:             CPU                                \n  Cache Info:              \n    L1:                      49152(0xc000) KB                   \n  Chip ID:                 0(0x0)                             \n  ASIC Revision:           0(0x0)                             \n  Cacheline Size:          64(0x40)                           \n  Max Clock Freq. (MHz):   5187                               \n  BDFID:                   0                                  \n  Internal Node ID:        0                                  \n  Compute Unit:            32                                 \n  SIMDs per CU:            0                                  \n  Shader Engines:          0                                  \n  Shader Arrs. per Eng.:   0                                  \n  WatchPts on Addr. Ranges:1                                  \n  Memory Properties:       \n  Features:                None\n  Pool Info:               \n    Pool 1                   \n      Segment:                 GLOBAL; FLAGS: FINE GRAINED        \n      Size:                    65466124(0x3e6ef0c) KB             \n      Allocatable:             TRUE                               \n      Alloc Granule:           4KB                                \n      Alloc Recommended Granule:4KB                                \n      Alloc Alignment:         4KB                                \n      Accessible by all:       TRUE                               \n    Pool 2                   \n      Segment:                 GLOBAL; FLAGS: EXTENDED FINE GRAINED\n      Size:                    65466124(0x3e6ef0c) KB             \n      Allocatable:             TRUE                               \n      Alloc Granule:           4KB                                \n      Alloc Recommended Granule:4KB                                \n      Alloc Alignment:         4KB                                \n      Accessible by all:       TRUE                               \n    Pool 3                   \n      Segment:                 GLOBAL; FLAGS: KERNARG, FINE GRAINED\n      Size:                    65466124(0x3e6ef0c) KB             \n      Allocatable:             TRUE                               \n      Alloc Granule:           4KB                                \n      Alloc Recommended Granule:4KB                                \n      Alloc Alignment:         4KB                                \n      Accessible by all:       TRUE                               \n    Pool 4                   \n      Segment:                 GLOBAL; FLAGS: COARSE GRAINED      \n      Size:"
+  },
+  "interpretation": {
+    "native_hip_conditional_graph": false,
+    "static_hip_graph_can_be_tested": true,
+    "gpu_measurement_ready": true
+  }
+}

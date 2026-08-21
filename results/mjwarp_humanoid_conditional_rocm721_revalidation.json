@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "benchmark": "mujoco_warp_humanoid_contact_capture_while",
+  "hardware": {
+    "host": "AMD Ryzen AI Max+ 395",
+    "gpu": "Radeon 8060S",
+    "arch": "gfx1151",
+    "rocm": "7.2.1",
+    "warp_device": "cuda:0 (HIP)"
+  },
+  "software": {
+    "mujoco": "3.8.1",
+    "warp": "1.13.0+rocm.0",
+    "python": "3.12",
+    "graph_capture": "HIP single-stream"
+  },
+  "workload": {
+    "mjcf": "benchmarks/humanoid/humanoid.xml",
+    "worlds": 1024,
+    "steps": 1000,
+    "nconmax": 128,
+    "njmax": 128,
+    "single_stream": true,
+    "same_initial_state": true
+  },
+  "variants": {
+    "hip_eager_solver_loop": {
+      "jit_duration": 0.1941309617832303,
+      "run_time": 2.063827042467892,
+      "steps_per_second": 496165.6083232231,
+      "converged_worlds": 1024,
+      "model_memory": 52939,
+      "data_memory": 62894088,
+      "total_memory": 314572800,
+      "ncon_mean": 0.0,
+      "ncon_p95": 0.0,
+      "nefc_mean": 2.923,
+      "nefc_p95": 4.0,
+      "solver_niter_mean": 1.0427509765625,
+      "solver_niter_p95": 1.0
+    },
+    "hip_device_gated_single_graph": {
+      "jit_duration": 0.21387377846986055,
+      "run_time": 5.4870170736685395,
+      "steps_per_second": 186622.34621321646,
+      "converged_worlds": 1024,
+      "model_memory": 52939,
+      "data_memory": 62894088,
+      "total_memory": 14994636800,
+      "ncon_mean": 0.0,
+      "ncon_p95": 0.0,
+      "nefc_mean": 2.923,
+      "nefc_p95": 4.0,
+      "solver_niter_mean": 1.042759765625,
+      "solver_niter_p95": 1.0
+    }
+  },
+  "comparison": {
+    "throughput_speedup": 0.3761291453551187,
+    "runtime_reduction": -1.6586612931998652,
+    "correctness": {
+      "max_abs_qpos_error": 6.77537173e-07,
+      "max_abs_qvel_error": 9.53674316e-07,
+      "numerically_equivalent": true
+    }
+  },
+  "runtime_diagnostics": {
+    "baseline": {
+      "hip_memset_invalid_argument_count": 0,
+      "process_completed": true,
+      "note": "Diagnostics are retained verbatim; they do not change the exit status or state comparison."
+    },
+    "device_gated": {
+      "hip_memset_invalid_argument_count": 2,
+      "process_completed": true,
+      "note": "Diagnostics are retained verbatim; they do not change the exit status or state comparison."
+    }
+  },
+  "conditional_api": {
+    "native_hip_conditional_node_available": false,
+    "implementation": "fixed unroll inside one HIP graph with device-gated solver kernels",
+    "native_boundary": "ROCm 7.2.1 headers/runtime expose ordinary graph capture but no hipGraphConditionalHandle API"
+  },
+  "artifacts": {
+    "baseline_log": "results/mjwarp_humanoid_baseline_1024x1000_revalidation.log",
+    "emulation_log": "results/mjwarp_humanoid_emulation_1024x1000_revalidation.log",
+    "correctness_log": "results/mjwarp_conditional_correctness_256x100_revalidation.log"
+  }
+}

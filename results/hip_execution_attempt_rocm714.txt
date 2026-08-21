@@ -1,0 +1,15 @@
+command:
+  ENV=/data/Data14TB/envs/mujoco-warp-rocm714
+  SDK="$ENV/lib/python3.11/site-packages/_rocm_sdk_devel"
+  LIB="$ENV/lib/python3.11/site-packages/_rocm_sdk_libraries"
+  PATH="$ENV/bin:$PATH" ROCM_PATH="$ENV" HIP_PATH="$SDK" HIP_PLATFORM=amd \
+    LD_LIBRARY_PATH="$SDK/lib:$LIB/lib:${LD_LIBRARY_PATH:-}" \
+    ./build/hip_graph_benchmark --scenario humanoid-contact --worlds 1024 \
+    --steps 1000 --output results/hip_humanoid_contact_rocm714.json
+binary_sha256: e64bf2196c522d6638ba55f328729bc03fef79b7e4d390f112b6106cc786df56
+returncode: 2
+stderr: hipGetDeviceCount(&device_count): no ROCm-capable device is detected
+
+The ROCm 7.14 binary reached HIP device discovery. No GPU result JSON was
+created because the current user cannot open /dev/kfd; the session is not in
+the render group.

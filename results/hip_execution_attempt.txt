@@ -1,0 +1,6 @@
+command: HIP_PATH=/data/Data14TB/envs/mujoco-warp-hip-toolchain ROCM_PATH=/data/Data14TB/envs/mujoco-warp-hip-toolchain GPU_ARCH=gfx1151 ./build/hip_graph_benchmark --scenario humanoid-contact --worlds 1024 --steps 1000 --output results/hip_humanoid_contact.json
+returncode: 2
+stderr: hipGetDeviceCount(&device_count): no ROCm-capable device is detected
+
+The binary reached HIP device discovery. No GPU result JSON was created because
+the current user cannot open /dev/kfd.

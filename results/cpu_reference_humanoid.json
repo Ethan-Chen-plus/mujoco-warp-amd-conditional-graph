@@ -1,0 +1,29 @@
+{
+  "schema": "mujoco-warp-amd-cpu-reference-v1",
+  "scenario": "humanoid-contact",
+  "worlds": 1024,
+  "steps": 1000,
+  "max_iterations": 100,
+  "tiers": [
+    1,
+    4,
+    10,
+    40,
+    100
+  ],
+  "selected_tier_histogram": {
+    "1": 10240,
+    "4": 30767,
+    "10": 61393,
+    "40": 307199,
+    "100": 614401
+  },
+  "eager_iteration_work": 102400000,
+  "host_adaptive_iteration_work": 74475298,
+  "ideal_work_reduction": 0.27270216796875,
+  "max_abs_state_error": 0.0,
+  "numerically_equivalent": true,
+  "execution": "cpu_reference_only",
+  "elapsed_seconds": 4.933438138104975,
+  "result_sha256": "1a6d3899fcaf1c5b28e254bdba831c82def176a104bcb1be74e57d217bbdac24"
+}

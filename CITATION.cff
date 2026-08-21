@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+title: "MuJoCo-Warp Conditional Graphs on AMD ROCm"
+message: "If this repository helps your AMD ROCm or MuJoCo-Warp work, please cite the repository and the upstream projects."
+type: software
+authors:
+  - family-names: Chen
+    given-names: Kewei
+    affiliation: Datawhale-EAI
+repository-code: "https://github.com/Ethan-Chen-plus/mujoco-warp-amd-conditional-graph"
+license: Apache-2.0
+keywords:
+  - AMD ROCm
+  - HIP
+  - MuJoCo-Warp
+  - conditional graph
+  - GPU simulation
+  - physics simulation

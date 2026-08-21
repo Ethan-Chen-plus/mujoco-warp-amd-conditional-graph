@@ -1,0 +1,651 @@
+{
+  "schema": "mujoco-warp-amd-source-callsite-v1",
+  "upstream_revisions": {
+    "mujoco_warp": "9229bb9d1a698c9464df862a915b46899720338c",
+    "warp": "8ca65dd5f8a444785408ecaa956bac0d2c427d6f"
+  },
+  "targets": {
+    "solver": {
+      "path": "upstream/mujoco_warp/mujoco_warp/_src/solver.py",
+      "sha256": "671b5735ca8b5d173e3542ea47a5d95d0a5aa9350d0522bfcf2b412972d80280",
+      "matches": [
+        {
+          "pattern": "graph_conditional",
+          "line": 3512,
+          "snippet": [
+            "    wp.launch(_reset_nsolving, dim=1, inputs=[d.nworld], outputs=[nsolving])",
+            "  if m.opt.iterations != 0 and m.opt.graph_conditional:",
+            "    # Note: the iteration kernel (indicated by while_body) is repeatedly launched"
+          ]
+        },
+        {
+          "pattern": "wp.capture_while",
+          "line": 3520,
+          "snippet": [
+            "    # note: we only launch the iteration kernel if everything is not done",
+            "    wp.capture_while(",
+            "      nsolving,"
+          ]
+        },
+        {
+          "pattern": "wp.get_device().is_hip",
+          "line": 3530,
+          "snippet": [
+            "    )",
+            "  elif m.opt.iterations != 0 and wp.get_device().is_hip:",
+            "    # AMD: self-implemented hipGraphConditionalHandle equivalent."
+          ]
+        },
+        {
+          "pattern": "MJW_SOLVER_NCHECK",
+          "line": 3535,
+          "snippet": [
+            "    # early-exit granularity against pipeline-stall count; env-tunable so the",
+            "    # balance can be swept (MJW_SOLVER_NCHECK, default 3).",
+            "    N_CHECK = max(1, int(os.environ.get(\"MJW_SOLVER_NCHECK\", \"3\")))"
+          ]
+        },
+        {
+          "pattern": "MJW_SOLVER_NCHECK",
+          "line": 3536,
+          "snippet": [
+            "    # balance can be swept (MJW_SOLVER_NCHECK, default 3).",
+            "    N_CHECK = max(1, int(os.environ.get(\"MJW_SOLVER_NCHECK\", \"3\")))",
+            "    _dev = wp.get_device()"
+          ]
+        },
+        {
+          "pattern": "graph_conditional",
+          "line": 3602,
+          "snippet": [
+            "",
+            "  if m.opt.iterations != 0 and m.opt.graph_conditional:",
+            "    wp.capture_while("
+          ]
+        },
+        {
+          "pattern": "wp.capture_while",
+          "line": 3603,
+          "snippet": [
+            "  if m.opt.iterations != 0 and m.opt.graph_conditional:",
+            "    wp.capture_while(",
+            "      nsolving,"
+          ]
+        },
+        {
+          "pattern": "wp.get_device().is_hip",
+          "line": 3612,
+          "snippet": [
+            "    )",
+            "  elif m.opt.iterations != 0 and wp.get_device().is_hip:",
+            "    # AMD: self-implemented hipGraphConditionalHandle equivalent for island solver."
+          ]
+        }
+      ]
+    },
+    "forward": {
+      "path": "upstream/mujoco_warp/mujoco_warp/_src/forward.py",
+      "sha256": "df6b846e970dad2750cbb2c060c3200825711fa204203dd04493d5e4a4b3ec43",
+      "matches": [
+        {
+          "pattern": "WP_HIP_GRAPH_ENABLE",
+          "line": 662,
+          "snippet": [
+            "  # Streams are pre-created in put_data() to avoid per-step allocation overhead.",
+            "  # AMD PR#5: disable multi-stream when WP_HIP_GRAPH_ENABLE=1",
+            "  # hipGraph (ThreadLocal mode) only captures default stream \u2014 secondary streams missed."
+          ]
+        },
+        {
+          "pattern": "WP_HIP_GRAPH_ENABLE",
+          "line": 667,
+          "snippet": [
+            "  import os as _fwd_os",
+            "  _hip_graph_mode = _fwd_os.environ.get(\"WP_HIP_GRAPH_ENABLE\", \"0\") == \"1\"",
+            "  _hip_single_stream = _fwd_os.environ.get(\"MJW_HIP_SINGLE_STREAM\", \"0\") == \"1\""
+          ]
+        },
+        {
+          "pattern": "_HIP_GRAPH_ITER_SEQUENCE",
+          "line": 1444,
+          "snippet": [
+            "# Worst case: 155 total iterations with 5 D2H checks (~25us overhead total).",
+            "_HIP_GRAPH_ITER_SEQUENCE = (1, 4, 10, 40, 100)",
+            ""
+          ]
+        },
+        {
+          "pattern": "WP_HIP_GRAPH_ENABLE",
+          "line": 1452,
+          "snippet": [
+            "  AMD Opt D (MIGraphX-pattern hipGraph): On AMD/HIP devices with",
+            "  WP_HIP_GRAPH_ENABLE=1, captures the full physics step as a hipGraph",
+            "  after warmup and replays it with a single hipGraphLaunch call."
+          ]
+        },
+        {
+          "pattern": "hipGraphLaunch",
+          "line": 1453,
+          "snippet": [
+            "  WP_HIP_GRAPH_ENABLE=1, captures the full physics step as a hipGraph",
+            "  after warmup and replays it with a single hipGraphLaunch call.",
+            ""
+          ]
+        },
+        {
+          "pattern": "hipGraphLaunch",
+          "line": 1460,
+          "snippet": [
+            "  4. Post-capture warmup (10 iters) \u2014 settle internal state",
+            "  5. hipGraphLaunch on all subsequent steps",
+            ""
+          ]
+        },
+        {
+          "pattern": "WP_HIP_GRAPH_ENABLE",
+          "line": 1472,
+          "snippet": [
+            "  # This gives full convergence guarantee while near-optimal in the common case.",
+            "  # Check WP_HIP_GRAPH_ENABLE \u2014 without it, capture_begin is a no-op on HIP",
+            "  import os as _os"
+          ]
+        },
+        {
+          "pattern": "WP_HIP_GRAPH_ENABLE",
+          "line": 1474,
+          "snippet": [
+            "  import os as _os",
+            "  _hip_graph_enabled = _os.environ.get(\"WP_HIP_GRAPH_ENABLE\", \"0\") == \"1\"",
+            "  _use_graph = ("
+          ]
+        },
+        {
+          "pattern": "_HIP_GRAPH_ITER_SEQUENCE",
+          "line": 1540,
+          "snippet": [
+            "      _orig_iters = m.opt.iterations",
+            "      for n_iters in _HIP_GRAPH_ITER_SEQUENCE:",
+            "        m.opt.iterations = n_iters"
+          ]
+        },
+        {
+          "pattern": "hipGraphLaunch",
+          "line": 1638,
+          "snippet": [
+            "    # them. This yields correct one-step-per-call semantics with a single",
+            "    # hipGraphLaunch (the launch-overhead win we captured graphs for).",
+            "    import warp as _wp"
+          ]
+        }
+      ]
+    },
+    "broadphase": {
+      "path": "upstream/mujoco_warp/mujoco_warp/_src/collision_driver.py",
+      "sha256": "b8c5f6db9e25a7dfeb5ee11b6f748a53c71df659f89f59dae801db8095333a35",
+      "matches": [
+        {
+          "pattern": "m.opt.broadphase",
+          "line": 575,
+          "snippet": [
+            "",
+            "  Two sorting strategies are supported, controlled by `m.opt.broadphase`",
+            ""
+          ]
+        },
+        {
+          "pattern": "m.opt.broadphase",
+          "line": 593,
+          "snippet": [
+            "  cumulative_sum = wp.empty((d.nworld, m.ngeom), dtype=int)",
+            "  segmented_index = wp.empty(d.nworld + 1 if m.opt.broadphase == BroadphaseType.SAP_SEGMENTED else 0, dtype=int)",
+            ""
+          ]
+        },
+        {
+          "pattern": "m.opt.broadphase",
+          "line": 596,
+          "snippet": [
+            "  wp.launch(",
+            "    kernel=_sap_project(m.opt.broadphase),",
+            "    dim=(d.nworld, m.ngeom),"
+          ]
+        },
+        {
+          "pattern": "m.opt.broadphase",
+          "line": 607,
+          "snippet": [
+            "",
+            "  if m.opt.broadphase == BroadphaseType.SAP_TILE:",
+            "    wp.launch_tiled("
+          ]
+        },
+        {
+          "pattern": "m.opt.broadphase",
+          "line": 635,
+          "snippet": [
+            "    kernel=_sap_broadphase(",
+            "      m.opt.broadphase_filter, m.geom_aabb.shape[0], m.geom_rbound.shape[0], m.geom_margin.shape[0], m.geom_gap.shape[0]",
+            "    ),"
+          ]
+        },
+        {
+          "pattern": "m.opt.broadphase",
+          "line": 726,
+          "snippet": [
+            "    _nxn_broadphase(",
+            "      m.opt.broadphase_filter, m.geom_aabb.shape[0], m.geom_rbound.shape[0], m.geom_margin.shape[0], m.geom_gap.shape[0]",
+            "    ),"
+          ]
+        },
+        {
+          "pattern": "m.opt.broadphase",
+          "line": 776,
+          "snippet": [
+            "  first identifies potential collision pairs using a broadphase algorithm (either N-squared",
+            "  or Sweep-and-Prune, based on `m.opt.broadphase`). Then, for each potential pair, it",
+            "  performs narrowphase collision detection to compute detailed contact information like"
+          ]
+        },
+        {
+          "pattern": "_run_broadphase",
+          "line": 802,
+          "snippet": [
+            "  # CRITICAL: nacon must be zeroed before narrowphase regardless.",
+            "  _run_broadphase = True",
+            "  device = wp.get_device()"
+          ]
+        },
+        {
+          "pattern": "Reuse cached broadphase result",
+          "line": 806,
+          "snippet": [
+            "    if hasattr(d, \"_bvh_cached_ctx\") and d._bvh_cached_ctx is not None:",
+            "      # Reuse cached broadphase result",
+            "      ctx = d._bvh_cached_ctx"
+          ]
+        },
+        {
+          "pattern": "_run_broadphase",
+          "line": 808,
+          "snippet": [
+            "      ctx = d._bvh_cached_ctx",
+            "      _run_broadphase = False",
+            "    elif not hasattr(d, \"_bvh_cached_ctx\"):"
+          ]
+        },
+        {
+          "pattern": "_run_broadphase",
+          "line": 812,
+          "snippet": [
+            "",
+            "  if _run_broadphase:",
+            "    if m.opt.broadphase == BroadphaseType.NXN:"
+          ]
+        },
+        {
+          "pattern": "m.opt.broadphase",
+          "line": 813,
+          "snippet": [
+            "  if _run_broadphase:",
+            "    if m.opt.broadphase == BroadphaseType.NXN:",
+            "      nxn_broadphase(m, d, ctx)"
+          ]
+        }
+      ],
+      "interpretation": "The pinned snapshot has a broadphase cache path, but no capture_if token. Treat sleeping conditional capture as the next implementation target."
+    },
+    "warp_conditional_backend": {
+      "path": "upstream/warp/warp/native/warp.cu",
+      "sha256": "78b5f759732867f99c4734be860059de5a433b263bd91c16a2a645f58c2beb88",
+      "matches": [
+        {
+          "pattern": "__HIP_PLATFORM_AMD__",
+          "line": 17,
+          "snippet": [
+            "",
+            "#if !defined(__HIP_PLATFORM_AMD__)",
+            "#include <nvPTXCompiler.h>"
+          ]
+        },
+        {
+          "pattern": "__HIP_PLATFORM_AMD__",
+          "line": 42,
+          "snippet": [
+            "#define check_nvrtc(code) (check_nvrtc_result(code, __FILE__, __LINE__))",
+            "#if !defined(__HIP_PLATFORM_AMD__)",
+            "#define check_nvptx(code) (check_nvptx_result(code, __FILE__, __LINE__))"
+          ]
+        },
+        {
+          "pattern": "__HIP_PLATFORM_AMD__",
+          "line": 47,
+          "snippet": [
+            "#endif",
+            "#if WP_ENABLE_MATHDX && !defined(__HIP_PLATFORM_AMD__)",
+            "#define check_nvjitlink(handle, code) (check_nvjitlink_result(handle, code, __FILE__, __LINE__))"
+          ]
+        },
+        {
+          "pattern": "__HIP_PLATFORM_AMD__",
+          "line": 102,
+          "snippet": [
+            "",
+            "#if !defined(__HIP_PLATFORM_AMD__)",
+            "bool check_nvptx_result(nvPTXCompileResult result, const char* file, int line)"
+          ]
+        },
+        {
+          "pattern": "__HIP_PLATFORM_AMD__",
+          "line": 257,
+          "snippet": [
+            "",
+            "#if defined(__HIP_PLATFORM_AMD__)",
+            "// Track allocation stream for each mempool allocation so that"
+          ]
+        },
+        {
+          "pattern": "__HIP_PLATFORM_AMD__",
+          "line": 317,
+          "snippet": [
+            "                );",
+            "#if !defined(__HIP_PLATFORM_AMD__) && defined(CUDA_VERSION) && CUDA_VERSION >= 12000",
+            "                int device_attribute_integrated = 0;"
+          ]
+        },
+        {
+          "pattern": "__HIP_PLATFORM_AMD__",
+          "line": 329,
+          "snippet": [
+            "#else",
+            "#if defined(__HIP_PLATFORM_AMD__)",
+            "                g_devices[i].is_ipc_supported = 0;"
+          ]
+        },
+        {
+          "pattern": "__HIP_PLATFORM_AMD__",
+          "line": 352,
+          "snippet": [
+            "                ));",
+            "#if !defined(__HIP_PLATFORM_AMD__)",
+            "                int major = 0;"
+          ]
+        },
+        {
+          "pattern": "__HIP_PLATFORM_AMD__",
+          "line": 368,
+          "snippet": [
+            "#endif",
+            "#if defined(__HIP_PLATFORM_AMD__)",
+            "                cudaDeviceProp props;"
+          ]
+        },
+        {
+          "pattern": "__HIP_PLATFORM_AMD__",
+          "line": 427,
+          "snippet": [
+            "            // workaround for https://nvbugspro.nvidia.com/bug/4456003",
+            "#if !defined(__HIP_PLATFORM_AMD__)",
+            "            if (device_info->is_mempool_supported) {"
+          ]
+        },
+        {
+          "pattern": "__HIP_PLATFORM_AMD__",
+          "line": 480,
+          "snippet": [
+            "        // ongoing graph capture - need to stage the fill value so that it persists with the graph",
+            "#if !defined(__HIP_PLATFORM_AMD__) && CUDA_VERSION >= 12040",
+            "        if (wp_cuda_driver_version() >= 12040) {"
+          ]
+        },
+        {
+          "pattern": "__HIP_PLATFORM_AMD__",
+          "line": 592,
+          "snippet": [
+            "                // this could be a regular stream-ordered allocation or a graph allocation",
+            "#if defined(__HIP_PLATFORM_AMD__)",
+            "                ContextInfo* ci = get_context_info(free_info.context);"
+          ]
+        },
+        {
+          "pattern": "__HIP_PLATFORM_AMD__",
+          "line": 826,
+          "snippet": [
+            "",
+            "#if defined(__HIP_PLATFORM_AMD__)",
+            "    // Clean up alloc tracking in case async-allocated memory is freed via the default path"
+          ]
+        },
+        {
+          "pattern": "__HIP_PLATFORM_AMD__",
+          "line": 871,
+          "snippet": [
+            "        }",
+            "#if defined(__HIP_PLATFORM_AMD__)",
+            "        else {"
+          ]
+        },
+        {
+          "pattern": "__HIP_PLATFORM_AMD__",
+          "line": 907,
+          "snippet": [
+            "            // should safely complete.",
+            "#if defined(__HIP_PLATFORM_AMD__)",
+            "            {"
+          ]
+        },
+        {
+          "pattern": "__HIP_PLATFORM_AMD__",
+          "line": 948,
+          "snippet": [
+            "        if (capture_iter != g_captures.end()) {",
+            "#if defined(__HIP_PLATFORM_AMD__)",
+            "            // hipGraphAddMemFreeNode rejects pointers from hipMallocAsync during"
+          ]
+        },
+        {
+          "pattern": "__HIP_PLATFORM_AMD__",
+          "line": 982,
+          "snippet": [
+            "                    // try to free the pointer now",
+            "#if defined(__HIP_PLATFORM_AMD__)",
+            "                    ContextInfo* ci = get_context_info(context);"
+          ]
+        },
+        {
+          "pattern": "__HIP_PLATFORM_AMD__",
+          "line": 1218,
+          "snippet": [
+            "    bool use_batch = true;",
+            "#if !defined(__HIP_PLATFORM_AMD__)",
+            "    use_batch = (wp_cuda_driver_version() >= 12080);"
+          ]
+        },
+        {
+          "pattern": "__HIP_PLATFORM_AMD__",
+          "line": 3277,
+          "snippet": [
+            "// Support for conditional graph nodes available with CUDA 12.4+.",
+            "#if !defined(__HIP_PLATFORM_AMD__) && CUDA_VERSION >= 12040",
+            ""
+          ]
+        },
+        {
+          "pattern": "cudaGraphConditionalHandle",
+          "line": 3287,
+          "snippet": [
+            "    static const char* kernel_source = R\"(",
+            "        typedef __device_builtin__ unsigned long long cudaGraphConditionalHandle;",
+            "        extern \"C\" __device__ __cudart_builtin__ void cudaGraphSetConditional(cudaGraphConditionalHandle handle, unsigned int value);"
+          ]
+        },
+        {
+          "pattern": "cudaGraphConditionalHandle",
+          "line": 3288,
+          "snippet": [
+            "        typedef __device_builtin__ unsigned long long cudaGraphConditionalHandle;",
+            "        extern \"C\" __device__ __cudart_builtin__ void cudaGraphSetConditional(cudaGraphConditionalHandle handle, unsigned int value);",
+            ""
+          ]
+        },
+        {
+          "pattern": "cudaGraphConditionalHandle",
+          "line": 3290,
+          "snippet": [
+            "",
+            "        extern \"C\" __global__ void set_conditional_if_handle_kernel(cudaGraphConditionalHandle handle, int* value)",
+            "        {"
+          ]
+        },
+        {
+          "pattern": "cudaGraphConditionalHandle",
+          "line": 3296,
+          "snippet": [
+            "",
+            "        extern \"C\" __global__ void set_conditional_else_handle_kernel(cudaGraphConditionalHandle handle, int* value)",
+            "        {"
+          ]
+        },
+        {
+          "pattern": "cudaGraphConditionalHandle",
+          "line": 3302,
+          "snippet": [
+            "",
+            "        extern \"C\" __global__ void set_conditional_if_else_handles_kernel(cudaGraphConditionalHandle if_handle, cudaGraphConditionalHandle else_handle, int* value)",
+            "        {"
+          ]
+        },
+        {
+          "pattern": "wp_cuda_graph_insert_if_else",
+          "line": 3427,
+          "snippet": [
+            "// if_graph_ret and else_graph_ret should be NULL if not needed",
+            "bool wp_cuda_graph_insert_if_else(",
+            "    void* context, void* stream, int arch, bool use_ptx, int* condition, void** if_graph_ret, void** else_graph_ret"
+          ]
+        },
+        {
+          "pattern": "cudaGraphConditionalHandle",
+          "line": 3465,
+          "snippet": [
+            "    if (num_branches == 1 /*|| driver_version >= 12080*/) {",
+            "        cudaGraphConditionalHandle handle;",
+            "        check_cuda(cudaGraphConditionalHandleCreate(&handle, cuda_graph));"
+          ]
+        },
+        {
+          "pattern": "cudaGraphConditionalHandle",
+          "line": 3466,
+          "snippet": [
+            "        cudaGraphConditionalHandle handle;",
+            "        check_cuda(cudaGraphConditionalHandleCreate(&handle, cuda_graph));",
+            ""
+          ]
+        },
+        {
+          "pattern": "cudaGraphConditionalHandle",
+          "line": 3519,
+          "snippet": [
+            "        // Create IF node followed by an additional IF node with negated condition",
+            "        cudaGraphConditionalHandle if_handle, else_handle;",
+            "        check_cuda(cudaGraphConditionalHandleCreate(&if_handle, cuda_graph));"
+          ]
+        },
+        {
+          "pattern": "cudaGraphConditionalHandle",
+          "line": 3520,
+          "snippet": [
+            "        cudaGraphConditionalHandle if_handle, else_handle;",
+            "        check_cuda(cudaGraphConditionalHandleCreate(&if_handle, cuda_graph));",
+            "        check_cuda(cudaGraphConditionalHandleCreate(&else_handle, cuda_graph));"
+          ]
+        },
+        {
+          "pattern": "cudaGraphConditionalHandle",
+          "line": 3521,
+          "snippet": [
+            "        check_cuda(cudaGraphConditionalHandleCreate(&if_handle, cuda_graph));",
+            "        check_cuda(cudaGraphConditionalHandleCreate(&else_handle, cuda_graph));",
+            ""
+          ]
+        },
+        {
+          "pattern": "cudaGraphConditionalHandle",
+          "line": 3746,
+          "snippet": [
+            "",
+            "    cudaGraphConditionalHandle handle;",
+            "    if (!check_cuda(cudaGraphConditionalHandleCreate(&handle, cuda_graph)))"
+          ]
+        },
+        {
+          "pattern": "cudaGraphConditionalHandle",
+          "line": 3747,
+          "snippet": [
+            "    cudaGraphConditionalHandle handle;",
+            "    if (!check_cuda(cudaGraphConditionalHandleCreate(&handle, cuda_graph)))",
+            "        return false;"
+          ]
+        },
+        {
+          "pattern": "wp_cuda_graph_insert_if_else",
+          "line": 3814,
+          "snippet": [
+            "",
+            "bool wp_cuda_graph_insert_if_else(",
+            "    void* context, void* stream, int arch, bool use_ptx, int* condition, void** if_graph_ret, void** else_graph_ret"
+          ]
+        },
+        {
+          "pattern": "__HIP_PLATFORM_AMD__",
+          "line": 3913,
+          "snippet": [
+            "",
+            "#if WP_ENABLE_MATHDX && !defined(__HIP_PLATFORM_AMD__)",
+            "bool check_nvjitlink_result(nvJitLinkHandle handle, nvJitLinkResult result, const char* file, int line)"
+          ]
+        },
+        {
+          "pattern": "__HIP_PLATFORM_AMD__",
+          "line": 3959,
+          "snippet": [
+            "{",
+            "#if defined(__HIP_PLATFORM_AMD__)",
+            "    (void)ltoirs;"
+          ]
+        },
+        {
+          "pattern": "__HIP_PLATFORM_AMD__",
+          "line": 4783,
+          "snippet": [
+            "    if (load_ptx) {",
+            "#if defined(__HIP_PLATFORM_AMD__)",
+            "        if (!check_cu(cuModuleLoadDataEx_f(&module, input.data(), 0, NULL, NULL))) {"
+          ]
+        },
+        {
+          "pattern": "__HIP_PLATFORM_AMD__",
+          "line": 4955,
+          "snippet": [
+            "",
+            "#if defined(__HIP_PLATFORM_AMD__)",
+            "    // HIP: total work-items (grid_dim * block_dim) must not exceed 2^32-1."
+          ]
+        },
+        {
+          "pattern": "__HIP_PLATFORM_AMD__",
+          "line": 5053,
+          "snippet": [
+            "",
+            "#if defined(__HIP_PLATFORM_AMD__)",
+            "    *ptr = reinterpret_cast<uint64_t>(device_ptr);"
+          ]
+        }
+      ]
+    }
+  },
+  "priority": {
+    "p0": "solver capture_while and its HIP convergence fallback",
+    "p1": "sleeping broadphase cache followed by a native capture_if node",
+    "deferred": "capture_switch; no main-path use found in the pinned snapshot"
+  }
+}

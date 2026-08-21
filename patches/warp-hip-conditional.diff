@@ -1,0 +1,130 @@
+diff --git a/warp/__init__.py b/warp/__init__.py
+index 4ddf228..786c831 100644
+--- a/warp/__init__.py
++++ b/warp/__init__.py
+@@ -348,6 +348,7 @@ from warp._src.utils import ScopedAllocator as ScopedAllocator
+ from warp._src.utils import ScopedCapture as ScopedCapture
+ 
+ from warp._src.context import is_conditional_graph_supported as is_conditional_graph_supported
++from warp._src.context import is_conditional_graph_emulated as is_conditional_graph_emulated
+ 
+ from warp._src.context import Graph as Graph
+ from warp._src.context import capture_begin as capture_begin
+diff --git a/warp/_src/context.py b/warp/_src/context.py
+index 1515984..a7ff83a 100644
+--- a/warp/_src/context.py
++++ b/warp/_src/context.py
+@@ -9591,8 +9591,12 @@ def assert_conditional_graph_support():
+     if runtime is None:
+         init()
+ 
+-    # HIP/ROCm does not support conditional graph nodes (no hipGraphConditionalHandle API)
++    # HIP/ROCm does not expose the CUDA conditional-node API.  The opt-in
++    # device-gated backend below is a solver-compatible single-graph fallback;
++    # it is intentionally kept separate from native runtime support.
+     if runtime.is_hip:
++        if is_conditional_graph_emulated():
++            return
+         raise RuntimeError("Conditional graph nodes are not supported on HIP/ROCm")
+ 
+     if runtime.toolkit_version is None or runtime.toolkit_version < (12, 4):
+@@ -9630,6 +9634,20 @@ def is_conditional_graph_supported() -> bool:
+     )
+ 
+ 
++def is_conditional_graph_emulated() -> bool:
++    """Return whether the opt-in HIP device-gated conditional backend is enabled.
++
++    HIP releases used by the AMD target do not provide ``hipGraphConditionalHandle``.
++    MuJoCo-Warp's solver can nevertheless capture one fixed-length graph whose
++    kernels skip work after their device-resident convergence flags are set.  This
++    helper reports that explicit compatibility mode without conflating it with a
++    native HIP conditional graph node.
++    """
++    if runtime is None:
++        init()
++    return runtime.is_hip and os.environ.get("WP_HIP_CONDITIONAL_EMULATION", "0") == "1"
++
++
+ def capture_pause(device: DeviceLike = None, stream: Stream | None = None) -> Graph:
+     if stream is not None:
+         device = stream.device
+@@ -9751,6 +9769,14 @@ def capture_if(
+ 
+         return
+ 
++    # The native path below requires CUDA's conditional-node ABI.  The HIP
++    # compatibility path is a single graph with device-gated body kernels.
++    if device.is_hip and is_conditional_graph_emulated():
++        raise RuntimeError(
++            "capture_if is not implemented by the HIP device-gated backend; "
++            "use capture_while for solver convergence or disable emulation."
++        )
++
+     # ensure conditional graph nodes are supported
+     assert_conditional_graph_support()
+ 
+@@ -9826,7 +9852,13 @@ def capture_if(
+     capture_resume(main_graph, stream=stream)
+ 
+ 
+-def capture_while(condition: warp.array[int], while_body: Callable | Graph, stream: Stream | None = None, **kwargs):
++def capture_while(
++    condition: warp.array[int],
++    while_body: Callable | Graph,
++    stream: Stream | None = None,
++    max_iterations: int | None = None,
++    **kwargs,
++):
+     """Create a dynamic loop based on a condition.
+ 
+     The condition value is retrieved from the first element of the ``condition`` array.
+@@ -9834,12 +9866,22 @@ def capture_while(condition: warp.array[int], while_body: Callable | Graph, stre
+     The ``while_body`` callback is responsible for updating the condition value so the loop can terminate.
+ 
+     This function is particularly useful with CUDA graphs, but can be used without graph capture as well.
+-    CUDA 12.4+ is required to take advantage of conditional graph nodes for dynamic control flow.
++    CUDA 12.4+ is required for native conditional graph nodes.  On HIP/ROCm,
++    ``WP_HIP_CONDITIONAL_EMULATION=1`` enables an explicit device-gated
++    compatibility mode.  In that mode the body is captured ``max_iterations``
++    times (or ``WP_HIP_CONDITIONAL_MAX_ITERS`` times) into one graph.  The body
++    must make its own device-resident convergence state gate safe to repeat;
++    MuJoCo-Warp's solver satisfies this contract through ``ctx.done`` and
++    ``nsolving``.  This mode removes host synchronization, but it is not a
++    native ``hipGraphConditionalHandle`` node.
+ 
+     Args:
+         condition: Warp array holding the condition value.
+         while_body: A callback function or :class:`Graph` to execute while the loop condition is True.
+         stream: The CUDA stream where the condition was written. If None, use the current stream on the device where ``condition`` resides.
++        max_iterations: Maximum number of body expansions used by the HIP
++          device-gated compatibility mode. Required for predictable capture;
++          when omitted, ``WP_HIP_CONDITIONAL_MAX_ITERS`` is used (default 100).
+ 
+     Any additional keyword arguments are forwarded to the callback function.
+     """
+@@ -9885,7 +9927,23 @@ def capture_while(condition: warp.array[int], while_body: Callable | Graph, stre
+ 
+         return
+ 
+-    # ensure conditional graph nodes are supported
++    if device.is_hip and is_conditional_graph_emulated():
++        if not isinstance(while_body, Callable):
++            raise TypeError("HIP device-gated capture_while requires a callable while_body")
++        if max_iterations is None:
++            max_iterations = int(os.environ.get("WP_HIP_CONDITIONAL_MAX_ITERS", "100"))
++        if max_iterations < 1:
++            raise ValueError("max_iterations must be positive in HIP device-gated capture_while")
++
++        # No hipGraphConditionalHandle exists on the target ROCm runtime.  A
++        # fixed unroll still gives one native HIP graph launch, while the
++        # solver's device flags make later iterations kernel-no-ops.  Do not
++        # read `condition` on the host and do not synchronize during capture.
++        for _ in range(max_iterations):
++            while_body(**kwargs)
++        return
++
++    # ensure native conditional graph nodes are supported
+     assert_conditional_graph_support()
+ 
+     # insert conditional while-node

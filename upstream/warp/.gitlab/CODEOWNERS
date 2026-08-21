@@ -1,0 +1,111 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# This CODEOWNERS file is only used on the internal GitLab
+# Ordering matters: https://docs.gitlab.com/ee/user/project/codeowners/#define-more-specific-owners-for-more-specifically-defined-files-or-directories
+
+[Public API] @mmacklin @ershi
+/warp/__init__.py
+/warp/__init__.pyi
+/warp/config.py
+
+[Key Project Files] @ershi
+/pyproject.toml
+/setup.py
+/VERSION.md
+/README.md
+/licenses/
+/SECURITY.md
+/LICENSE.md
+
+[CI/CD] @ershi
+/.github/
+/.gitlab/
+/.gitlab-ci.yml
+/.pre-commit-config.yaml
+/docker/
+/tools/
+/uv.lock
+/warp/_src/thirdparty/unittest_parallel.py
+.clang-format
+.gitignore
+.gitattributes
+.python-version
+
+^[Docs and Examples] @mmacklin @ershi
+/docs/
+/warp/examples/
+/notebooks/
+/AGENTS.md
+/CLAUDE.md
+/CONTRIBUTING.md
+/PUBLICATIONS.md
+
+^[Benchmarks] @ershi
+/asv.conf.json
+/asv/
+
+^[Code Generation] @ncapens
+/warp/_src/codegen.py
+
+^[Build] @ncapens
+/build_lib.py
+/warp/_src/build.py
+/warp/_src/build_dll.py
+
+^[Native C++/CUDA] @mmacklin @lwawrzyniak @ncapens
+/warp/native/
+
+^[Clang] @ncapens
+/build_llvm.py
+/warp/native/clang/
+
+^[FEM Module] @gdaviet
+/warp/fem/
+/warp/_src/fem/
+/warp/examples/fem/
+/warp/tests/test_fem.py
+
+^[Linear Algebra] @gdaviet
+/warp/optim/linear.py
+/warp/_src/optim/linear.py
+/warp/sparse.py
+/warp/_src/sparse.py
+/warp/tests/test_linear_solvers.py
+/warp/tests/test_sparse.py
+
+^[Tiles] @zcorse
+/warp/native/tile*
+
+^[Volumes] @gdaviet
+/warp/native/nanovdb/
+/warp/native/volume*
+/warp/tests/geometry/test_volume_write.py
+/warp/tests/geometry/test_volume.py
+
+^[Coloring] @ankac
+/warp/native/coloring.*
+/warp/_src/coloring.py
+
+^[BVH and Meshes] @mmacklin @ankac
+/warp/native/bvh.*
+/warp/native/mesh.*
+/warp/native/intersect*
+
+^[Interoperability] @lwawrzyniak
+/warp/dlpack.py
+/warp/_src/thirdparty/dlpack.py
+/warp/examples/interop/
+/warp/jax_experimental/
+/warp/_src/jax_experimental/
+/warp/jax.py
+/warp/_src/jax.py
+/warp/fabric.py
+/warp/_src/fabric.py
+/warp/torch.py
+/warp/_src/torch.py
+/warp/tests/interop/test_dlpack.py
+/warp/tests/interop/test_jax.py
+/warp/tests/interop/test_torch.py
+/warp/tests/test_fabricarray.py
+/warp/native/fabric.h

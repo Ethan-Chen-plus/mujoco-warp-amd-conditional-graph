@@ -1,0 +1,29 @@
+{
+  "schema": "mujoco-warp-amd-cpu-reference-v1",
+  "scenario": "aloha-sleeping",
+  "worlds": 1024,
+  "steps": 1000,
+  "max_iterations": 100,
+  "tiers": [
+    1,
+    4,
+    10,
+    40,
+    100
+  ],
+  "selected_tier_histogram": {
+    "1": 922053,
+    "4": 0,
+    "10": 0,
+    "40": 1672,
+    "100": 100275
+  },
+  "eager_iteration_work": 102400000,
+  "host_adaptive_iteration_work": 11016433,
+  "ideal_work_reduction": 0.8924176464843749,
+  "max_abs_state_error": 0.0,
+  "numerically_equivalent": true,
+  "execution": "cpu_reference_only",
+  "elapsed_seconds": 1.4381438088603318,
+  "result_sha256": "8ea9d17a1fb21530e91e5330e67ca5f9e732940280ef418057f04864dbd142ac"
+}
