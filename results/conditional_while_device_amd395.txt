@@ -1,0 +1,2 @@
+conditional_while_device counter=5 expected=5
+exit_code=0

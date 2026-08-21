@@ -9591,13 +9591,14 @@ def assert_conditional_graph_support():
     if runtime is None:
         init()
 
-    # HIP/ROCm does not expose the CUDA conditional-node API.  The opt-in
-    # device-gated backend below is a solver-compatible single-graph fallback;
-    # it is intentionally kept separate from native runtime support.
+    # HIP/ROCm normally does not expose the CUDA conditional-node API.  Two
+    # explicit opt-in paths are kept separate from the default HIP behavior:
+    # the device-gated compatibility backend and the experimental HIP/CLR
+    # runtime extension.
     if runtime.is_hip:
-        if is_conditional_graph_emulated():
+        if is_conditional_graph_emulated() or is_conditional_graph_native_experimental():
             return
-        raise RuntimeError("Conditional graph nodes are not supported on HIP/ROCm")
+        raise RuntimeError("Conditional graph nodes are not enabled on HIP/ROCm")
 
     if runtime.toolkit_version is None or runtime.toolkit_version < (12, 4):
         raise RuntimeError("Warp must be built with CUDA Toolkit 12.4+ to enable conditional graph nodes")
@@ -9622,9 +9623,9 @@ def is_conditional_graph_supported() -> bool:
     if runtime is None:
         init()
 
-    # HIP/ROCm does not expose hipGraphConditionalHandle or equivalent API
+    # The stock HIP/ROCm runtime does not expose hipGraphConditionalHandle.
     if runtime.is_hip:
-        return False
+        return is_conditional_graph_native_experimental()
 
     return (
         runtime.toolkit_version is not None
@@ -9646,6 +9647,19 @@ def is_conditional_graph_emulated() -> bool:
     if runtime is None:
         init()
     return runtime.is_hip and os.environ.get("WP_HIP_CONDITIONAL_EMULATION", "0") == "1"
+
+
+def is_conditional_graph_native_experimental() -> bool:
+    """Return whether the patched HIP/CLR conditional-node extension is enabled.
+
+    This flag is deliberately opt-in.  It only selects Warp's native conditional
+    graph insertion path; callers must provide a matching HIP/CLR runtime build
+    that exports the experimental API.  A stock ROCm installation remains on the
+    documented compatibility path.
+    """
+    if runtime is None:
+        init()
+    return runtime.is_hip and os.environ.get("WP_HIP_CONDITIONAL_NATIVE", "0") == "1"
 
 
 def capture_pause(device: DeviceLike = None, stream: Stream | None = None) -> Graph:
@@ -9949,10 +9963,13 @@ def capture_while(
     # insert conditional while-node
     body_graph = ctypes.c_void_p()
     cond_handle = ctypes.c_uint64()
+    # The HIP runtime resolves the gfx target from the active device.  Keep the
+    # existing numeric ABI for CUDA while passing a harmless sentinel on HIP.
+    native_graph_arch = 0 if device.is_hip else device.get_cuda_compile_arch()
     if not runtime.core.wp_cuda_graph_insert_while(
         device.context,
         stream.cuda_stream,
-        device.get_cuda_compile_arch(),
+        native_graph_arch,
         device.get_cuda_output_format() == "ptx",
         ctypes.cast(condition.ptr, ctypes.POINTER(ctypes.c_int32)),
         ctypes.byref(body_graph),
@@ -9987,7 +10004,7 @@ def capture_while(
     if not runtime.core.wp_cuda_graph_set_condition(
         device.context,
         stream.cuda_stream,
-        device.get_cuda_compile_arch(),
+        native_graph_arch,
         device.get_cuda_output_format() == "ptx",
         ctypes.cast(condition.ptr, ctypes.POINTER(ctypes.c_int32)),
         cond_handle,

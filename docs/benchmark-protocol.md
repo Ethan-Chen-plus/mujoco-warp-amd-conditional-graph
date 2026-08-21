@@ -15,18 +15,21 @@
 
 ### Eager HIP solver loop
 
-`WP_HIP_CONDITIONAL_EMULATION=0` keeps the solver in its regular Python loop
-around HIP iteration kernels. This is the baseline.
+`WP_HIP_CONDITIONAL_NATIVE=0` and `WP_HIP_CONDITIONAL_EMULATION=0` keep the
+solver in its regular loop around HIP iteration kernels. This is the baseline.
 
-### Device-gated single HIP graph
+### Native HIP conditional handle
 
-`WP_HIP_CONDITIONAL_EMULATION=1` captures one fixed-length graph. Each solver
-iteration reads device-resident convergence state and completed worlds skip
-subsequent work. The graph has no host convergence copy during replay.
+`WP_HIP_CONDITIONAL_NATIVE=1` and `WP_HIP_CONDITIONAL_EMULATION=0` use the
+patched HIP/CLR runtime. The solver creates a device-resident conditional
+handle, attaches the captured body graph to a while node, and updates the
+condition from device code. There is no host convergence copy during replay.
 
-This is a project-level HIP compatibility implementation, not a native
-`hipGraphConditionalHandle` node. ROCm 7.2.1 headers and runtime expose
-ordinary graph capture but no conditional graph node ABI.
+### Legacy fixed-unroll compatibility path
+
+`WP_HIP_CONDITIONAL_EMULATION=1` captures a fixed upper bound and gates solver
+kernels from device state. It remains useful for historical comparison but is
+not the native result reported below.
 
 ## Correctness gates
 
@@ -41,22 +44,28 @@ ordinary graph capture but no conditional graph node ABI.
 The recorded state errors are:
 
 ```text
-max_abs_qpos_error = 7.86967576e-7
+max_abs_qpos_error = 6.17932528e-7
 max_abs_qvel_error = 9.53674316e-7
 numerically_equivalent = true
 ```
 
-## Primary result
+## Primary native result
 
-Artifact: `results/mjwarp_humanoid_conditional_rocm721.json`.
+Artifact: `results/mjwarp_native_conditional_amd395/summary.json`.
 
 | Variant | Runtime | Worlds/s |
 | --- | ---: | ---: |
-| Eager HIP solver loop | 2.076724 s | 493,084 |
-| Device-gated single HIP graph | 1.520274 s | 673,563 |
+| Eager HIP solver loop | 2.084074 s | 491,345 |
+| Native HIP conditional handle | 1.334484 s | 767,338 |
 
-The device-gated path is `1.366x` faster and reduces runtime by `26.79%` in
-this fixed contact workload.
+The native path is `1.562x` faster and reduces runtime by `35.97%` in this
+fixed workload. The paired state errors are `6.18e-7` for `qpos`, `9.54e-7`
+for `qvel`, and `0` for simulation time.
+
+The larger ALOHA side result is intentionally separate: the native prototype
+currently reaches 8,937 worlds/s versus 19,117 worlds/s for eager execution.
+It identifies graph-build and replay overhead that must be reduced before
+claiming a universal speedup.
 
 The later files named `*_revalidation.log` are retained as a shared-GPU
 repeat. They completed correctly but were slower because a long-lived policy
@@ -74,16 +83,11 @@ telemetry is therefore labeled shared-host telemetry.
 ```bash
 ROOT=/path/to/mujoco-warp-amd-conditional-graph
 ENV=/home/aup/envs/mujoco-warp-amd-py312
-PYTHONPATH="$ROOT/upstream/warp:$ROOT/upstream/mujoco_warp" \
-LD_LIBRARY_PATH="$ROOT/upstream/warp/warp/bin:/opt/rocm/lib:/opt/rocm/lib64" \
-MUJOCO_GL=egl MJW_HIP_SINGLE_STREAM=1 WP_HIP_GRAPH_ENABLE=0 \
-WP_HIP_CONDITIONAL_EMULATION=1 \
-"$ENV/bin/python" \
-"$ROOT/upstream/mujoco_warp/mujoco_warp/testspeed.py" \
-"$ROOT/upstream/mujoco_warp/benchmarks/humanoid/humanoid.xml" \
---function=step --nworld=1024 --nstep=1000 --nconmax=128 --njmax=128 \
---device=cuda:0 --format=json
+HIP_CLR_LIB=/path/to/patched/libamdhip64.so \
+ROOT="$ROOT" ENV="$ENV" \
+  bash "$ROOT/scripts/run_native_mjwarp_benchmark.sh"
 ```
 
-For both variants, use `scripts/run_mjwarp_amd_benchmark.sh`; it also runs the
-correctness check and emits `SHA256SUMS`.
+The script runs both native and eager variants, a paired state comparison, and
+emits `SHA256SUMS`. `scripts/run_mjwarp_amd_benchmark.sh` is a compatibility
+alias for the same native benchmark.

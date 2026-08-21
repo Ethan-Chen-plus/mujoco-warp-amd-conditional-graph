@@ -206,19 +206,22 @@ def unroll(
   with wp.ScopedDevice(wp.get_device(DEVICE.value)):
     with warp_util.EventTracer(enabled=EVENT_TRACE.value) as tracer:
       jit_beg = time.perf_counter()
-      # The AMD Warp runtime currently exposes HIP graph capture, but the
-      # eager solver path still contains multi-stream synchronizations that
-      # cannot execute inside a capture. Keep the baseline genuinely eager;
-      # retain capture only for the opt-in device-gated conditional-while
-      # path, which is the path being measured as a single graph replay.
+      # The AMD Warp runtime uses a single-stream capture for both opt-in
+      # conditional paths. The compatibility path captures a device-gated
+      # fixed unroll; the experimental native path inserts a conditional
+      # handle/node pair while the solver body is being captured.
       hip_conditional_emulation = (
         wp.get_device().is_hip and os.environ.get("WP_HIP_CONDITIONAL_EMULATION", "0") == "1"
       )
-      if wp.get_device().is_hip and not hip_conditional_emulation:
+      hip_conditional_native = (
+        wp.get_device().is_hip and os.environ.get("WP_HIP_CONDITIONAL_NATIVE", "0") == "1"
+      )
+      hip_conditional_capture = hip_conditional_emulation or hip_conditional_native
+      if wp.get_device().is_hip and not hip_conditional_capture:
         capture = None
         fn(*fn_args)
       else:
-        if hip_conditional_emulation:
+        if hip_conditional_capture:
           # Populate cached solver contexts and all lazy scratch buffers before
           # entering HIP capture. Allocating them inside capture is unsupported
           # by the ROCm runtime and can produce invalid graph launches at scale.

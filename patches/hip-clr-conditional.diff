@@ -1,0 +1,1218 @@
+diff --git a/hipamd/src/hip_graph.cpp b/hipamd/src/hip_graph.cpp
+index b23952e..ae81f75 100644
+--- a/hipamd/src/hip_graph.cpp
++++ b/hipamd/src/hip_graph.cpp
+@@ -25,6 +25,7 @@
+ #include "hip_platform.hpp"
+ #include "hip_event.hpp"
+ #include "hip_mempool_impl.hpp"
++#include <new>
+ 
+ namespace hip {
+ 
+@@ -34,6 +35,22 @@ amd::Monitor g_captureStreamsLock{};
+ // StreamCaptureset lock
+ amd::Monitor g_streamSetLock{};
+ std::unordered_set<hip::Stream*> g_allCapturingStreams;
++std::unordered_map<hipGraphConditionalHandle, ConditionalHandleState>
++    g_conditional_handle_states;
++std::mutex g_conditional_handle_states_lock;
++
++bool GetConditionalHandleState(hipGraphConditionalHandle handle, ConditionalHandleState* state) {
++  if (state == nullptr) {
++    return false;
++  }
++  std::lock_guard<std::mutex> lock(g_conditional_handle_states_lock);
++  const auto it = g_conditional_handle_states.find(handle);
++  if (it == g_conditional_handle_states.end()) {
++    return false;
++  }
++  *state = it->second;
++  return true;
++}
+ hipError_t ihipGraphDebugDotPrint(hip::Graph* graph, const char* path, unsigned int flags);
+ hipError_t ihipStreamUpdateCaptureDependencies(hipStream_t stream, hipGraphNode_t* dependencies,
+                                                size_t numDependencies, unsigned int flags);
+@@ -203,22 +220,50 @@ hipError_t ihipGraphAddMemsetNode(hip::GraphNode** pGraphNode, hip::Graph* graph
+   if (status != hipSuccess) {
+     return status;
+   }
++
++  // A graph allocation reserves its virtual address during capture and maps the
++  // physical allocation only when the graph executes. Accept that address for
++  // a captured memset after checking the reservation range; eager memset calls
++  // continue to require a physically mapped allocation.
++  bool pending_graph_allocation = false;
++  if (capture && pMemsetParams->dst != nullptr) {
++    size_t discard_offset = 0;
++    const auto physical_memory = getMemoryObject(pMemsetParams->dst, discard_offset);
++    const auto virtual_memory = amd::MemObjMap::FindVirtualMemObj(pMemsetParams->dst);
++    if (physical_memory == nullptr && virtual_memory != nullptr) {
++      const auto base = reinterpret_cast<uintptr_t>(virtual_memory->getSvmPtr());
++      const auto address = reinterpret_cast<uintptr_t>(pMemsetParams->dst);
++      const auto requested_size = pMemsetParams->width * pMemsetParams->elementSize *
++                                  pMemsetParams->height * depth;
++      if (address >= base && address - base <= virtual_memory->getSize() &&
++          requested_size <= virtual_memory->getSize() - (address - base)) {
++        pending_graph_allocation = true;
++      }
++    }
++  }
+   if (depth == 0) {
+     return hipErrorInvalidValue;
+   }
+   if (pMemsetParams->height == 1) {
+-    status =
+-        ihipMemset_validate(pMemsetParams->dst, pMemsetParams->value, pMemsetParams->elementSize,
+-                            pMemsetParams->width * pMemsetParams->elementSize);
++    if (!pending_graph_allocation) {
++      status =
++          ihipMemset_validate(pMemsetParams->dst, pMemsetParams->value,
++                              pMemsetParams->elementSize,
++                              pMemsetParams->width * pMemsetParams->elementSize);
++    }
+   } else {
+     if (pMemsetParams->pitch < (pMemsetParams->width * pMemsetParams->elementSize)) {
+       return hipErrorInvalidValue;
+     }
+     auto sizeBytes =
+         pMemsetParams->width * pMemsetParams->height * depth * pMemsetParams->elementSize;
+-    status = ihipMemset3D_validate(
+-        {pMemsetParams->dst, pMemsetParams->pitch, pMemsetParams->width, pMemsetParams->height},
+-        pMemsetParams->value, {pMemsetParams->width, pMemsetParams->height, depth}, sizeBytes);
++    if (!pending_graph_allocation) {
++      status = ihipMemset3D_validate(
++          {pMemsetParams->dst, pMemsetParams->pitch, pMemsetParams->width,
++           pMemsetParams->height},
++          pMemsetParams->value, {pMemsetParams->width, pMemsetParams->height, depth},
++          sizeBytes);
++    }
+   }
+   if (status != hipSuccess) {
+     return status;
+@@ -1298,6 +1343,54 @@ hipError_t hipGraphCreate(hipGraph_t* pGraph, unsigned int flags) {
+   HIP_RETURN(hipSuccess);
+ }
+ 
++hipError_t hipGraphConditionalHandleCreate(hipGraphConditionalHandle* pHandle, hipGraph_t graph,
++                                           unsigned int defaultLaunchValue, unsigned int flags) {
++  if (pHandle == nullptr || graph == nullptr || !hip::Graph::isGraphValid(
++                                   reinterpret_cast<hip::Graph*>(graph)) ||
++      (flags != 0 && flags != hipGraphCondAssignDefault)) {
++    return hipErrorInvalidValue;
++  }
++
++  void* device_handle = nullptr;
++  hipError_t status = ihipMalloc(&device_handle, sizeof(unsigned int), 0);
++  if (status != hipSuccess) {
++    return status;
++  }
++
++  hip::Stream* stream = hip::getNullStream();
++  if (stream == nullptr) {
++    ihipFree(device_handle);
++    return hipErrorInvalidValue;
++  }
++  status = ihipMemcpy(device_handle, &defaultLaunchValue, sizeof(defaultLaunchValue),
++                      hipMemcpyHostToDevice, *stream, false, false);
++  if (status != hipSuccess) {
++    ihipFree(device_handle);
++    return status;
++  }
++
++  const auto handle = reinterpret_cast<hipGraphConditionalHandle>(device_handle);
++  {
++    std::lock_guard<std::mutex> lock(g_conditional_handle_states_lock);
++    g_conditional_handle_states[handle] = {defaultLaunchValue, flags};
++  }
++  *pHandle = handle;
++  return hipSuccess;
++}
++
++hipError_t hipGraphConditionalHandleDestroy(hipGraphConditionalHandle handle) {
++  if (handle == 0) {
++    return hipErrorInvalidValue;
++  }
++  {
++    std::lock_guard<std::mutex> lock(g_conditional_handle_states_lock);
++    if (g_conditional_handle_states.erase(handle) == 0) {
++      return hipErrorInvalidValue;
++    }
++  }
++  return ihipFree(reinterpret_cast<void*>(handle));
++}
++
+ hipError_t hipGraphDestroy(hipGraph_t graph) {
+   HIP_INIT_API(hipGraphDestroy, graph);
+   if (graph == nullptr) {
+@@ -1515,13 +1608,34 @@ hipError_t ihipGraphInstantiate(hip::GraphExec** pGraphExec, hip::Graph* graph,
+   if (*pGraphExec == nullptr) {
+     return hipErrorOutOfMemory;
+   }
++  if (ConditionalGraphDebugEnabled()) {
++    std::fprintf(stderr, "[conditional-debug] instantiate-begin graph=%p exec=%p nodes=%zu flags=%llu\\n",
++                 static_cast<void*>(graph), static_cast<void*>(*pGraphExec), graph->GetNodeCount(),
++                 static_cast<unsigned long long>(flags));
++  }
+   graph->clone(*pGraphExec, true);
++  if (ConditionalGraphDebugEnabled()) {
++    std::fprintf(stderr, "[conditional-debug] instantiate-cloned exec=%p nodes=%zu\\n",
++                 static_cast<void*>(*pGraphExec), (*pGraphExec)->GetNodeCount());
++  }
+   (*pGraphExec)->ScheduleNodes();
++  if (ConditionalGraphDebugEnabled()) {
++    std::fprintf(stderr, "[conditional-debug] instantiate-scheduled exec=%p max_streams=%d\\n",
++                 static_cast<void*>(*pGraphExec), (*pGraphExec)->GetMaxStreams());
++  }
+   if (false == (*pGraphExec)->TopologicalOrder()) {
+     delete *pGraphExec;
+     return hipErrorInvalidValue;
+   }
++  if (ConditionalGraphDebugEnabled()) {
++    std::fprintf(stderr, "[conditional-debug] instantiate-topo exec=%p topo=%zu\\n",
++                 static_cast<void*>(*pGraphExec), (*pGraphExec)->GetNodes().size());
++  }
+   graph->SetGraphInstantiated(true);
++  if (ConditionalGraphDebugEnabled()) {
++    std::fprintf(stderr, "[conditional-debug] instantiate-marked graph=%p\\n",
++                 static_cast<void*>(graph));
++  }
+   if (DEBUG_HIP_GRAPH_DOT_PRINT) {
+     static int i = 1;
+     std::string filename =
+@@ -1532,9 +1646,18 @@ hipError_t ihipGraphInstantiate(hip::GraphExec** pGraphExec, hip::Graph* graph,
+     }
+   }
+   if (DEBUG_CLR_GRAPH_PACKET_CAPTURE) {
++    if (ConditionalGraphDebugEnabled()) {
++      std::fprintf(stderr, "[conditional-debug] instantiate-set-arg-manager exec=%p\\n",
++                   static_cast<void*>(*pGraphExec));
++    }
+     (*pGraphExec)->SetKernelArgManager(new hip::GraphKernelArgManager());
+   }
+-  return (*pGraphExec)->Init();
++  const hipError_t init_status = (*pGraphExec)->Init();
++  if (ConditionalGraphDebugEnabled()) {
++    std::fprintf(stderr, "[conditional-debug] instantiate-init exec=%p status=%d\\n",
++                 static_cast<void*>(*pGraphExec), static_cast<int>(init_status));
++  }
++  return init_status;
+ }
+ 
+ hipError_t hipGraphInstantiate(hipGraphExec_t* pGraphExec, hipGraph_t graph,
+@@ -3172,6 +3295,40 @@ hipError_t hipGraphAddNode(hipGraphNode_t* pGraphNode, hipGraph_t graph,
+                                 reinterpret_cast<hip::GraphNode* const*>(pDependencies),
+                                 numDependencies, false);
+       break;
++    case hipGraphNodeTypeConditional:
++      if (nodeParams->conditional.handle == 0 ||
++          nodeParams->conditional.type != hipGraphCondTypeWhile ||
++          nodeParams->conditional.size != 1) {
++        HIP_RETURN(hipErrorInvalidValue);
++      }
++      // CUDA's conditional-node ABI returns the body graph through phGraph_out.
++      // Warp inserts the node before capturing that body, so create the graph and
++      // output slot here when the caller leaves them unset.
++      if (nodeParams->conditional.phGraph_out == nullptr) {
++        nodeParams->conditional.phGraph_out = new (std::nothrow) hipGraph_t[1];
++        if (nodeParams->conditional.phGraph_out == nullptr) {
++          HIP_RETURN(hipErrorOutOfMemory);
++        }
++        nodeParams->conditional.phGraph_out[0] = nullptr;
++      }
++      if (nodeParams->conditional.phGraph_out[0] == nullptr) {
++        auto* body_graph = new (std::nothrow) hip::Graph(hip::getCurrentDevice());
++        if (body_graph == nullptr) {
++          HIP_RETURN(hipErrorOutOfMemory);
++        }
++        nodeParams->conditional.phGraph_out[0] = reinterpret_cast<hipGraph_t>(body_graph);
++      }
++      if (!hip::Graph::isGraphValid(reinterpret_cast<hip::Graph*>(
++              nodeParams->conditional.phGraph_out[0]))) {
++        HIP_RETURN(hipErrorInvalidValue);
++      }
++      node = new hip::ConditionalGraphNode(
++          reinterpret_cast<hip::Graph*>(nodeParams->conditional.phGraph_out[0]),
++          nodeParams->conditional);
++      status = ihipGraphAddNode(node, reinterpret_cast<hip::Graph*>(graph),
++                                reinterpret_cast<hip::GraphNode* const*>(pDependencies),
++                                numDependencies, false);
++      break;
+     case hipGraphNodeTypeWaitEvent:
+       if (nodeParams->eventWait.event == nullptr) {
+         HIP_RETURN(hipErrorInvalidValue);
+@@ -3500,6 +3657,17 @@ hipError_t ihipGraphNodeSetParams(hip::GraphNode* n, hipGraphNodeParams* nodePar
+       status = reinterpret_cast<hip::ChildGraphNode*>(n)->SetParams(
+           reinterpret_cast<hip::Graph*>(nodeParams->graph.graph));
+       break;
++    case hipGraphNodeTypeConditional:
++      if (nodeParams->conditional.type != hipGraphCondTypeWhile ||
++          nodeParams->conditional.size != 1 ||
++          nodeParams->conditional.phGraph_out == nullptr ||
++          nodeParams->conditional.phGraph_out[0] == nullptr) {
++        status = hipErrorInvalidValue;
++        break;
++      }
++      status = reinterpret_cast<hip::ConditionalGraphNode*>(n)->SetParams(
++          nodeParams->conditional);
++      break;
+     case hipGraphNodeTypeWaitEvent:
+       if (nodeParams->eventWait.event == nullptr) {
+         status = hipErrorInvalidValue;
+diff --git a/hipamd/src/hip_graph_internal.cpp b/hipamd/src/hip_graph_internal.cpp
+index 8ccab6a..4a69112 100644
+--- a/hipamd/src/hip_graph_internal.cpp
++++ b/hipamd/src/hip_graph_internal.cpp
+@@ -43,6 +43,7 @@ const char* GetGraphNodeTypeString(uint32_t op) {
+     CASE_STRING(hipGraphNodeTypeMemFree, MemFreeNode)
+     CASE_STRING(hipGraphNodeTypeMemcpyFromSymbol, MemcpyFromSymbolNode)
+     CASE_STRING(hipGraphNodeTypeMemcpyToSymbol, MemcpyToSymbolNode)
++    CASE_STRING(hipGraphNodeTypeConditional, ConditionalNode)
+     default:
+       case_string = "Unknown node type";
+   };
+@@ -273,8 +274,17 @@ bool Graph::TopologicalOrder(std::vector<Node>& TopoOrder) {
+ 
+ // ================================================================================================
+ void Graph::clone(Graph* newGraph, bool cloneNodes) const {
++  if (ConditionalGraphDebugEnabled()) {
++    std::fprintf(stderr, "[conditional-debug] graph-clone src=%p dst=%p nodes=%zu cloneNodes=%d\\n",
++                 static_cast<const void*>(this), static_cast<void*>(newGraph), vertices_.size(),
++                 cloneNodes ? 1 : 0);
++  }
+   newGraph->pOriginalGraph_ = this;
+   for (hip::GraphNode* entry : vertices_) {
++    if (ConditionalGraphDebugEnabled()) {
++      std::fprintf(stderr, "[conditional-debug] graph-clone-node src=%p type=%d\\n",
++                   static_cast<void*>(entry), static_cast<int>(entry->GetType()));
++    }
+     GraphNode* node = entry->clone();
+     node->SetParentGraph(newGraph);
+     newGraph->vertices_.push_back(node);
+@@ -314,6 +324,10 @@ void Graph::clone(Graph* newGraph, bool cloneNodes) const {
+   if (!cloneNodes) {
+     newGraph->clonedNodes_.clear();
+   }
++  if (ConditionalGraphDebugEnabled()) {
++    std::fprintf(stderr, "[conditional-debug] graph-clone-done dst=%p nodes=%zu\\n",
++                 static_cast<void*>(newGraph), newGraph->vertices_.size());
++  }
+ }
+ 
+ // ================================================================================================
+@@ -420,6 +434,11 @@ void GraphExec::FindStreamsReqPerDev() {
+ // ================================================================================================
+ hipError_t GraphExec::Init() {
+   hipError_t status = hipSuccess;
++  if (ConditionalGraphDebugEnabled()) {
++    std::fprintf(stderr, "[conditional-debug] init-begin exec=%p max_streams=%d topo=%zu packet_capture=%d\\n",
++                 static_cast<void*>(this), max_streams_, topoOrder_.size(),
++                 DEBUG_CLR_GRAPH_PACKET_CAPTURE ? 1 : 0);
++  }
+   // create extra stream to avoid queue collision with the default execution stream
+ 
+   if (max_streams_ == 1) {
+@@ -436,15 +455,28 @@ hipError_t GraphExec::Init() {
+         }
+       }
+     }
+-    if (DEBUG_CLR_GRAPH_PACKET_CAPTURE) {
+-      // For graph nodes capture AQL packets to dispatch them directly during graph launch.
++    if (DEBUG_CLR_GRAPH_PACKET_CAPTURE && !HasConditionalNode()) {
++      // Conditional graphs use the dependency-aware path below until their
++      // ordinary-node packet capture can be made lifetime-safe.
++      if (ConditionalGraphDebugEnabled()) {
++        std::fprintf(stderr, "[conditional-debug] init-capture-aql-begin exec=%p\\n",
++                     static_cast<void*>(this));
++      }
+       status = CaptureAQLPackets();
++      if (ConditionalGraphDebugEnabled()) {
++        std::fprintf(stderr, "[conditional-debug] init-capture-aql-end exec=%p status=%d\\n",
++                     static_cast<void*>(this), static_cast<int>(status));
++      }
+     }
+   } else {
+     status = CreateStreams(max_streams_, hip::getCurrentDevice()->deviceId());
+   }
+   instantiateDeviceId_ = hip::getCurrentDevice()->deviceId();
+   static_cast<ReferenceCountedObject*>(hip::getCurrentDevice())->retain();
++  if (ConditionalGraphDebugEnabled()) {
++    std::fprintf(stderr, "[conditional-debug] init-end exec=%p status=%d\\n",
++                 static_cast<void*>(this), static_cast<int>(status));
++  }
+   return status;
+ }
+ 
+@@ -604,6 +636,11 @@ hipError_t GraphExec::CaptureAndFormPacketsForGraph() {
+ hipError_t GraphExec::CaptureAQLPackets() {
+   hipError_t status = hipSuccess;
+ 
++  if (ConditionalGraphDebugEnabled()) {
++    std::fprintf(stderr, "[conditional-debug] capture-aql-size-begin exec=%p\\n",
++                 static_cast<void*>(this));
++  }
++
+   // Create a map to track kernel argument sizes for each device
+   std::unordered_map<int, size_t> kernArgSizeForGraph;
+   // Reserve space for all available devices and Initialize to 0
+@@ -612,6 +649,10 @@ hipError_t GraphExec::CaptureAQLPackets() {
+     kernArgSizeForGraph[devId] = 0;
+   }
+   GetKernelArgSizeForGraph(kernArgSizeForGraph);
++  if (ConditionalGraphDebugEnabled()) {
++    std::fprintf(stderr, "[conditional-debug] capture-aql-size-end exec=%p\\n",
++                 static_cast<void*>(this));
++  }
+   
+   // Allocate kernel argument pools on respective devices with extra space for updates
+   for (const auto& deviceKernArgPair : kernArgSizeForGraph) {
+@@ -623,15 +664,30 @@ hipError_t GraphExec::CaptureAQLPackets() {
+     }
+ 
+     const size_t totalPoolSize = kernArgSize + kKernArgChunkSize;
++    if (ConditionalGraphDebugEnabled()) {
++      std::fprintf(stderr, "[conditional-debug] capture-aql-alloc device=%d size=%zu total=%zu manager=%p\\n",
++                   deviceId, kernArgSize, totalPoolSize, static_cast<void*>(kernArgManager_));
++    }
+     if (!kernArgManager_->AllocGraphKernargPool(totalPoolSize, g_devices[deviceId]->devices()[0])) {
+       ClPrint(amd::LOG_ERROR, amd::LOG_CODE, 
+               "[hipGraph] Failed to allocate kernel argument pool of size %zu for device %d", 
+               totalPoolSize, deviceId);
+       return hipErrorMemoryAllocation;
+     }
++    if (ConditionalGraphDebugEnabled()) {
++      std::fprintf(stderr, "[conditional-debug] capture-aql-alloc-done device=%d\\n", deviceId);
++    }
+   }
+ 
++  if (ConditionalGraphDebugEnabled()) {
++    std::fprintf(stderr, "[conditional-debug] capture-aql-packets-begin exec=%p\\n",
++                 static_cast<void*>(this));
++  }
+   status = CaptureAndFormPacketsForGraph();
++  if (ConditionalGraphDebugEnabled()) {
++    std::fprintf(stderr, "[conditional-debug] capture-aql-packets-end exec=%p status=%d\\n",
++                 static_cast<void*>(this), static_cast<int>(status));
++  }
+   if (status != hipSuccess) {
+     return status;
+   }
+@@ -879,6 +935,51 @@ hipError_t GraphExec::EnqueueMultiDeviceLinearGraph(hip::Stream* launch_stream)
+   return status;
+ }
+ 
++// ================================================================================================
++hipError_t GraphExec::EnqueueConditionalGraph(hip::Stream* launch_stream) {
++  if (launch_stream == nullptr) {
++    return hipErrorInvalidValue;
++  }
++
++  // Conditional graphs cannot use the AQL packet fast path.  For the current HIP
++  // prototype we keep the graph single-stream and dispatch its already computed
++  // topological order directly.  This avoids recursive traversal of long Warp
++  // solver graphs while preserving graph-node ordering and body execution.
++  for (auto node : topoOrder_) {
++    if (node == nullptr) {
++      return hipErrorInvalidValue;
++    }
++    if (ConditionalGraphDebugEnabled()) {
++      std::fprintf(stderr, "[conditional-debug] linear-node-before node=%p type=%d id=%d capture=%d\n",
++                   static_cast<void*>(node), static_cast<int>(node->GetType()), node->GetID(),
++                   node->GraphCaptureEnabled() ? 1 : 0);
++    }
++    node->SetStream(launch_stream);
++    // Use the node's assigned queue for both command creation and enqueue. Memory
++    // graph nodes depend on this queue identity to bind their VM map/unmap event
++    // to the same execution stream as the following memset/kernel nodes.
++    hip::Stream* node_stream = node->GetQueue();
++    if (node_stream == nullptr) {
++      return hipErrorInvalidValue;
++    }
++    hipError_t status = node->CreateCommand(node_stream);
++    if (ConditionalGraphDebugEnabled()) {
++      std::fprintf(stderr, "[conditional-debug] linear-node-created node=%p type=%d id=%d status=%d commands=%zu\n",
++                   static_cast<void*>(node), static_cast<int>(node->GetType()), node->GetID(),
++                   static_cast<int>(status), node->GetCommands().size());
++    }
++    if (status != hipSuccess) {
++      return status;
++    }
++    node->EnqueueCommands(node_stream);
++    if (ConditionalGraphDebugEnabled()) {
++      std::fprintf(stderr, "[conditional-debug] linear-node-enqueued node=%p type=%d id=%d\n",
++                   static_cast<void*>(node), static_cast<int>(node->GetType()), node->GetID());
++    }
++  }
++  return hipSuccess;
++}
++
+ // ================================================================================================
+ void GraphExec::UpdateStreams(hip::Stream* launch_stream) {
+   int devId = launch_stream->vdev()->device().index();
+@@ -911,6 +1012,28 @@ void GraphExec::UpdateStreams(hip::Stream* launch_stream) {
+ 
+ // ================================================================================================
+ bool Graph::RunOneNode(Node node, bool wait) {
++  static thread_local unsigned int graph_run_depth = 0;
++  if (graph_run_depth > 1024) {
++    if (ConditionalGraphDebugEnabled()) {
++      std::fprintf(stderr, "[conditional-debug] run-depth-limit node=%p type=%d id=%d\\n",
++                   static_cast<void*>(node), node == nullptr ? -1 : static_cast<int>(node->GetType()),
++                   node == nullptr ? -1 : node->GetID());
++    }
++    return false;
++  }
++  struct DepthGuard {
++    unsigned int& depth;
++    explicit DepthGuard(unsigned int& value) : depth(value) { ++depth; }
++    ~DepthGuard() { --depth; }
++  } depth_guard(graph_run_depth);
++  if (ConditionalGraphDebugEnabled() && node != nullptr &&
++      (graph_run_depth <= 8 || node->GetType() == hipGraphNodeTypeGraph ||
++       node->GetType() == hipGraphNodeTypeConditional)) {
++    std::fprintf(stderr, "[conditional-debug] run-node depth=%u node=%p type=%d id=%d edges=%zu deps=%zu launch=%d wait=%d\\n",
++                 graph_run_depth, static_cast<void*>(node), static_cast<int>(node->GetType()),
++                 node->GetID(), node->GetEdges().size(), node->GetDependencies().size(),
++                 node->launch_id_, wait ? 1 : 0);
++  }
+   if (node->launch_id_ == -1) {
+     // Clear the storage of the wait nodes
+     memset(&wait_order_[0], 0, sizeof(Node) * wait_order_.size());
+@@ -949,9 +1072,38 @@ bool Graph::RunOneNode(Node node, bool wait) {
+     }
+     if (node->GetType() == hipGraphNodeTypeGraph) {
+       // Process child graph separately, since, there is no connection
+-      auto child = reinterpret_cast<hip::ChildGraphNode*>(node)->GetChildGraph();
+-      if (!reinterpret_cast<hip::ChildGraphNode*>(node)->GetGraphCaptureStatus()) {
++      auto child_node = reinterpret_cast<hip::ChildGraphNode*>(node);
++      if (ConditionalGraphDebugEnabled()) {
++        std::fprintf(stderr, "[conditional-debug] run-child-before-get node=%p child_node=%p\\n",
++                     static_cast<void*>(node), static_cast<void*>(child_node));
++      }
++      auto child = child_node->GetChildGraph();
++      if (ConditionalGraphDebugEnabled()) {
++        std::fprintf(stderr,
++                     "[conditional-debug] run-child parent=%p node=%p child=%p stream_id=%d "
++                     "capture=%d child_nodes=%zu\\n",
++                     static_cast<void*>(node->GetParentGraph()), static_cast<void*>(node),
++                     static_cast<void*>(child), node->stream_id_,
++                     child_node->GetGraphCaptureStatus() ? 1 : 0,
++                     child == nullptr ? 0 : child->GetNodeCount());
++      }
++      if (child == nullptr || !hip::Graph::isGraphValid(child)) {
++        if (ConditionalGraphDebugEnabled()) {
++          std::fprintf(stderr, "[conditional-debug] run-invalid-child node=%p child=%p\\n",
++                       static_cast<void*>(node), static_cast<void*>(child));
++        }
++        return false;
++      }
++      if (!child_node->GetGraphCaptureStatus()) {
++        if (ConditionalGraphDebugEnabled()) {
++          std::fprintf(stderr, "[conditional-debug] run-child-before child=%p\\n",
++                       static_cast<void*>(child));
++        }
+         child->RunNodes(node->stream_id_, &streams_, &waitList);
++        if (ConditionalGraphDebugEnabled()) {
++          std::fprintf(stderr, "[conditional-debug] run-child-after child=%p\\n",
++                       static_cast<void*>(child));
++        }
+       }
+     } else {
+       // Assing a stream to the current node
+@@ -973,6 +1125,12 @@ bool Graph::RunOneNode(Node node, bool wait) {
+       }
+       // Start the execution
+       node->EnqueueCommands(node->GetQueue());
++      if (ConditionalGraphDebugEnabled() && node->GetType() == hipGraphNodeTypeConditional) {
++        std::fprintf(stderr, "[conditional-debug] run-conditional-enqueued node=%p id=%d\\n",
++                     static_cast<void*>(node), node->GetID());
++        std::fprintf(stderr, "[conditional-debug] run-conditional-edges node=%p count=%zu\\n",
++                     static_cast<void*>(node), node->GetEdges().size());
++      }
+     }
+     // Assign the launch ID of the submmitted node
+     // This is also applied to childGraphs to prevent them from being reprocessed
+@@ -980,12 +1138,48 @@ bool Graph::RunOneNode(Node node, bool wait) {
+     uint32_t i = 0;
+     // Execute the nodes in the edges list
+     for (auto edge : node->GetEdges()) {
++      if (ConditionalGraphDebugEnabled() && node->GetType() == hipGraphNodeTypeConditional) {
++        std::fprintf(stderr, "[conditional-debug] run-conditional-edge node=%p edge=%p\\n",
++                     static_cast<void*>(node), static_cast<void*>(edge));
++      }
++      if (edge == nullptr) {
++        if (ConditionalGraphDebugEnabled()) {
++          std::fprintf(stderr, "[conditional-debug] run-null-edge node=%p\\n",
++                       static_cast<void*>(node));
++        }
++        return false;
++      }
++      if (!GraphNode::isNodeValid(edge)) {
++        if (ConditionalGraphDebugEnabled()) {
++          std::fprintf(stderr, "[conditional-debug] run-invalid-edge node=%p edge=%p\\n",
++                       static_cast<void*>(node), static_cast<void*>(edge));
++        }
++        return false;
++      }
++      if (ConditionalGraphDebugEnabled() && node->GetType() == hipGraphNodeTypeConditional) {
++        std::fprintf(stderr,
++                     "[conditional-debug] run-conditional-edge-valid edge=%p type=%d id=%d deps=%zu\\n",
++                     static_cast<void*>(edge), static_cast<int>(edge->GetType()), edge->GetID(),
++                     edge->GetDependencies().size());
++      }
+       // Don't wait in the nodes, executed on the same streams and if it has just one dependency
+-      bool wait = ((i < DEBUG_HIP_FORCE_GRAPH_QUEUES) || (edge->GetDependencies().size() > 1))
++      const size_t edge_dependency_count = edge->GetDependencies().size();
++      bool wait = ((i < DEBUG_HIP_FORCE_GRAPH_QUEUES) || (edge_dependency_count > 1))
+                       ? true
+                       : false;
++      if (ConditionalGraphDebugEnabled() && node->GetType() == hipGraphNodeTypeConditional) {
++        std::fprintf(stderr,
++                     "[conditional-debug] run-conditional-before-child-call edge=%p wait=%d deps=%zu\\n",
++                     static_cast<void*>(edge), wait ? 1 : 0, edge_dependency_count);
++      }
+       // Execute the edge node
+-      if (!RunOneNode(edge, wait)) {
++      const bool edge_status = RunOneNode(edge, wait);
++      if (ConditionalGraphDebugEnabled() && node->GetType() == hipGraphNodeTypeConditional) {
++        std::fprintf(stderr,
++                     "[conditional-debug] run-conditional-after-child-call edge=%p status=%d\\n",
++                     static_cast<void*>(edge), edge_status ? 1 : 0);
++      }
++      if (!edge_status) {
+         return false;
+       }
+       i++;
+@@ -1002,10 +1196,31 @@ bool Graph::RunOneNode(Node node, bool wait) {
+ // ================================================================================================
+ bool Graph::RunNodes(int32_t base_stream, const std::vector<hip::Stream*>* parallel_streams,
+                      const amd::Command::EventWaitList* parent_waitlist) {
++  if (ConditionalGraphDebugEnabled()) {
++    std::fprintf(stderr,
++                 "[conditional-debug] run-nodes-enter graph=%p base=%d streams=%zu vertices=%zu "
++                 "leafs=%zu roots=%zu parent=%p\\n",
++                 static_cast<void*>(this), base_stream, streams_.size(), vertices_.size(),
++                 leafs_.size(), roots_.size(), static_cast<const void*>(parent_waitlist));
++  }
+   if (parallel_streams != nullptr) {
+     streams_ = *parallel_streams;
+   }
+ 
++  if (base_stream < 0 || static_cast<size_t>(base_stream) >= streams_.size() ||
++      streams_[base_stream] == nullptr) {
++    if (ConditionalGraphDebugEnabled()) {
++      std::fprintf(stderr, "[conditional-debug] run-nodes-invalid-stream graph=%p base=%d streams=%zu\\n",
++                   static_cast<void*>(this), base_stream, streams_.size());
++    }
++    return false;
++  }
++
++  if (ConditionalGraphDebugEnabled()) {
++    std::fprintf(stderr, "[conditional-debug] run-nodes-before-parent graph=%p stream=%p\\n",
++                 static_cast<void*>(this), static_cast<void*>(streams_[base_stream]));
++  }
++
+   // childgraph node has dependencies on parent graph nodes from other streams
+   if (parent_waitlist != nullptr) {
+     auto start_marker = new amd::Marker(*streams_[base_stream], true, *parent_waitlist);
+@@ -1018,6 +1233,11 @@ bool Graph::RunNodes(int32_t base_stream, const std::vector<hip::Stream*>* paral
+   current_id_ = 0;
+   memset(&leafs_[0], 0, sizeof(Node) * leafs_.size());
+ 
++  if (ConditionalGraphDebugEnabled()) {
++    std::fprintf(stderr, "[conditional-debug] run-nodes-before-last-command graph=%p\\n",
++                 static_cast<void*>(this));
++  }
++
+   // Add possible waits in parallel streams for the app's default launch stream
+   constexpr bool kRetainCommand = true;
+   auto last_command = streams_[base_stream]->getLastQueuedCommand(kRetainCommand);
+@@ -1038,14 +1258,28 @@ bool Graph::RunNodes(int32_t base_stream, const std::vector<hip::Stream*>* paral
+     last_command->release();
+   }
+ 
++  if (ConditionalGraphDebugEnabled()) {
++    std::fprintf(stderr, "[conditional-debug] run-nodes-before-vertices graph=%p\\n",
++                 static_cast<void*>(this));
++  }
++
+   // Run all commands in the graph
+   for (auto node : vertices_) {
++    if (ConditionalGraphDebugEnabled() && node != nullptr && node->launch_id_ == -1) {
++      std::fprintf(stderr, "[conditional-debug] run-nodes-dispatch graph=%p node=%p type=%d id=%d\\n",
++                   static_cast<void*>(this), static_cast<void*>(node),
++                   static_cast<int>(node->GetType()), node->GetID());
++    }
+     if (node->launch_id_ == -1) {
+       if (!RunOneNode(node, true)) {
+         return false;
+       }
+     }
+   }
++  if (ConditionalGraphDebugEnabled()) {
++    std::fprintf(stderr, "[conditional-debug] run-nodes-after-vertices graph=%p\\n",
++                 static_cast<void*>(this));
++  }
+   wait_list.clear();
+   // Check if the graph has multiple leaf nodes
+   for (uint32_t i = 0; i < DEBUG_HIP_FORCE_GRAPH_QUEUES; ++i) {
+@@ -1107,7 +1341,26 @@ hipError_t GraphExec::Run(hip::Stream* launch_stream) {
+           "on device: %d, total number of nodes: %d",
+           max_streams_, launch_stream->DeviceId(), topoOrder_.size());
+ 
+-  if (max_streams_ == 1 && max_streams_dev_.size() == 1 &&
++  if (HasConditionalNode()) {
++    // Conditional nodes execute their body and condition update through the
++    // dependency-aware path. AQL packet capture cannot represent the dynamic
++    // body boundary and is therefore intentionally bypassed for this graph.
++    streams_.clear();
++    streams_.push_back(launch_stream);
++    if (ConditionalGraphDebugEnabled()) {
++      std::fprintf(stderr, "[conditional-debug] run-generic exec=%p nodes=%zu\\n",
++                   static_cast<void*>(this), topoOrder_.size());
++    }
++    if (max_streams_ != 1) {
++      LogError("Conditional graph requires the single-stream execution path!");
++      return hipErrorNotSupported;
++    }
++    status = EnqueueConditionalGraph(launch_stream);
++    if (status != hipSuccess) {
++      LogError("Failed to launch conditional graph nodes!");
++      return status;
++    }
++  } else if (max_streams_ == 1 && max_streams_dev_.size() == 1 &&
+       max_streams_dev_.begin()->first == launch_stream->DeviceId()) {
+     if (DEBUG_CLR_GRAPH_PACKET_CAPTURE) {
+       // If the graph has kernels that does device side allocation,  during packet capture, heap is
+diff --git a/hipamd/src/hip_graph_internal.hpp b/hipamd/src/hip_graph_internal.hpp
+index d088cf3..8cc3749 100644
+--- a/hipamd/src/hip_graph_internal.hpp
++++ b/hipamd/src/hip_graph_internal.hpp
+@@ -20,6 +20,8 @@
+ 
+ #pragma once
+ #include <algorithm>
++#include <cstdio>
++#include <cstdlib>
+ #include <queue>
+ #include <stack>
+ #include <iostream>
+@@ -41,12 +43,28 @@ typedef struct ihipExtKernelEvents {
+ } ihipExtKernelEvents;
+ 
+ namespace hip {
++
++inline bool ConditionalGraphDebugEnabled() {
++  static const bool enabled = std::getenv("HIP_GRAPH_CONDITIONAL_DEBUG") != nullptr;
++  return enabled;
++}
++
+ class Graph;
+ class GraphNode;
+ class GraphExec;
+ class UserObject;
+ class GraphKernelNode;
+ typedef GraphNode* Node;
++
++struct ConditionalHandleState {
++  unsigned int default_value = 0;
++  unsigned int flags = 0;
++};
++
++extern std::unordered_map<hipGraphConditionalHandle, ConditionalHandleState>
++    g_conditional_handle_states;
++extern std::mutex g_conditional_handle_states_lock;
++bool GetConditionalHandleState(hipGraphConditionalHandle handle, ConditionalHandleState* state);
+ hipError_t ihipGraphAddNode(hip::GraphNode* graphNode, hip::Graph* graph,
+                             hip::GraphNode* const* pDependencies, size_t numDependencies,
+                             bool capture = true, int devId = 0);
+@@ -630,6 +648,7 @@ class Graph {
+   size_t GetNodeCount() const { return vertices_.size(); }
+   /// returns all the nodes in the graph
+   const std::vector<Node>& GetNodes() const { return vertices_; }
++  int GetMaxStreams() const { return max_streams_; }
+   /// returns all the edges in the graph
+   std::vector<std::pair<Node, Node>> GetEdges() const;
+   // returns the original graph ptr if cloned
+@@ -856,6 +875,12 @@ class GraphExec : public amd::ReferenceCountedObject, public Graph {
+ 
+   //! Check if kernel node has hidden heap
+   bool HasHiddenHeap() const { return hasHiddenHeap_; }
++  //! Conditional nodes require the dependency-aware execution path.
++  bool HasConditionalNode() const {
++    return std::any_of(topoOrder_.begin(), topoOrder_.end(), [](const Node node) {
++      return node != nullptr && node->GetType() == hipGraphNodeTypeConditional;
++    });
++  }
+   //! Graph has nodes that require hidden heap.
+   void SetHiddenHeap() { hasHiddenHeap_ = true; }
+ 
+@@ -884,6 +909,8 @@ class GraphExec : public amd::ReferenceCountedObject, public Graph {
+   hipError_t EnqueueGraphWithSingleList(hip::Stream* hip_stream);
+   //! Enqueue a multi-device linear graph for execution
+   hipError_t EnqueueMultiDeviceLinearGraph(hip::Stream* hip_stream);
++  //! Enqueue a conditional graph in topological order without recursive traversal.
++  hipError_t EnqueueConditionalGraph(hip::Stream* hip_stream);
+   bool TopologicalOrder() { return Graph::TopologicalOrder(topoOrder_); }
+   //! Update streams for the graph execution with launch stream from application
+   void UpdateStreams(hip::Stream* launch_stream);
+@@ -998,6 +1025,231 @@ class ChildGraphNode : public GraphNode, public GraphExec {
+   bool graphCaptureStatus_;
+ };
+ 
++/**
++ * Experimental conditional graph node.
++ *
++ * This first implementation keeps the condition in device memory and reads it only at the graph
++ * node boundary.  The body is then dispatched through the existing CLR graph executor.  It is a
++ * functional runtime prototype for HIP conditional semantics; it is not an AQL conditional packet
++ * and therefore does not claim device-side branch execution inside a single submitted packet list.
++ */
++class ConditionalGraphNode final : public ChildGraphNode {
++ public:
++  ConditionalGraphNode(Graph* graph, const hipConditionalNodeParams& params)
++      : ChildGraphNode(graph),
++        source_graph_(graph),
++        handle_(params.handle),
++        conditional_type_(params.type),
++        body_count_(params.size) {
++    type_ = hipGraphNodeTypeConditional;
++    if (ConditionalGraphDebugEnabled()) {
++      std::fprintf(stderr, "[conditional-debug] ctor node=%p body=%p body_nodes=%zu handle=%p\\n",
++                   static_cast<void*>(this), static_cast<void*>(graph),
++                   graph == nullptr ? 0 : graph->GetNodeCount(),
++                   reinterpret_cast<void*>(handle_));
++    }
++    ScheduleNodes();
++    GraphExec::TopologicalOrder();
++    if (ConditionalGraphDebugEnabled()) {
++      std::fprintf(stderr, "[conditional-debug] ctor-done node=%p nodes=%zu topo=%zu max_streams=%d\\n",
++                   static_cast<void*>(this), GetNodeCount(), topoOrder_.size(), max_streams_);
++    }
++  }
++
++  ConditionalGraphNode(const ConditionalGraphNode& rhs)
++      : ChildGraphNode(rhs),
++        source_graph_(rhs.source_graph_),
++        handle_(rhs.handle_),
++        conditional_type_(rhs.conditional_type_),
++        body_count_(rhs.body_count_) {
++    type_ = hipGraphNodeTypeConditional;
++    if (ConditionalGraphDebugEnabled()) {
++      std::fprintf(stderr, "[conditional-debug] copy-begin node=%p rhs=%p rhs_nodes=%zu source=%p\\n",
++                   static_cast<void*>(this), static_cast<const void*>(&rhs), rhs.GetNodeCount(),
++                   static_cast<void*>(source_graph_));
++    }
++    ScheduleNodes();
++    GraphExec::TopologicalOrder();
++    if (ConditionalGraphDebugEnabled()) {
++      std::fprintf(stderr, "[conditional-debug] copy-done node=%p nodes=%zu topo=%zu max_streams=%d\\n",
++                   static_cast<void*>(this), GetNodeCount(), topoOrder_.size(), max_streams_);
++    }
++  }
++
++  GraphNode* clone() const override { return new ConditionalGraphNode(*this); }
++
++  void EnqueueCommands(hip::Stream* stream) override {
++    if (ConditionalGraphDebugEnabled()) {
++      std::fprintf(stderr,
++                   "[conditional-debug] conditional-enter node=%p stream=%p handle=%p type=%d "
++                   "body_count=%u source=%p source_nodes=%zu child_nodes=%zu\\n",
++                   static_cast<void*>(this), static_cast<void*>(stream),
++                   reinterpret_cast<void*>(handle_), static_cast<int>(conditional_type_),
++                   body_count_, static_cast<void*>(source_graph_),
++                   source_graph_ == nullptr ? 0 : source_graph_->GetNodeCount(),
++                   GetNodeCount());
++    }
++    if (stream == nullptr || handle_ == 0 || body_count_ == 0) {
++      if (ConditionalGraphDebugEnabled()) {
++        std::fprintf(stderr, "[conditional-debug] conditional-skip-invalid node=%p\\n",
++                     static_cast<void*>(this));
++      }
++      return;
++    }
++
++    if (ConditionalGraphDebugEnabled()) {
++      std::fprintf(stderr, "[conditional-debug] enqueue-conditional node=%p source=%p source_nodes=%zu child_nodes=%zu handle=%p type=%d\\n",
++                   static_cast<void*>(this), static_cast<void*>(source_graph_),
++                   source_graph_ == nullptr ? 0 : source_graph_->GetNodeCount(),
++                   GetNodeCount(), reinterpret_cast<void*>(handle_),
++                   static_cast<int>(conditional_type_));
++    }
++
++    SetStream(stream);
++    ConditionalHandleState state;
++    if (GetConditionalHandleState(handle_, &state) &&
++        (state.flags & hipGraphCondAssignDefault) != 0) {
++      const unsigned int default_value = state.default_value;
++      if (ihipMemcpy(reinterpret_cast<void*>(handle_), &default_value, sizeof(default_value),
++                     hipMemcpyHostToDevice, *stream, false, false) != hipSuccess) {
++        return;
++      }
++      stream->finish();
++    }
++
++    unsigned int condition = 0;
++    if (!ReadCondition(stream, &condition)) {
++      if (ConditionalGraphDebugEnabled()) {
++        std::fprintf(stderr, "[conditional-debug] conditional-read-failed node=%p\\n",
++                     static_cast<void*>(this));
++      }
++      return;
++    }
++    if (ConditionalGraphDebugEnabled()) {
++      std::fprintf(stderr, "[conditional-debug] conditional-value node=%p value=%u\\n",
++                   static_cast<void*>(this), condition);
++    }
++
++    if (conditional_type_ == hipGraphCondTypeIf) {
++      if (condition != 0) {
++        ExecuteBody(stream);
++      }
++      return;
++    }
++
++    if (conditional_type_ == hipGraphCondTypeWhile) {
++      while (condition != 0) {
++        ExecuteBody(stream);
++        stream->finish();
++        if (!ReadCondition(stream, &condition)) {
++          return;
++        }
++      }
++    }
++  }
++
++  hipError_t SetParams(const hipConditionalNodeParams& params) {
++    if (params.handle == 0 || params.phGraph_out == nullptr || params.size != 1 ||
++        params.type != hipGraphCondTypeWhile) {
++      return hipErrorInvalidValue;
++    }
++    source_graph_ = reinterpret_cast<Graph*>(params.phGraph_out[0]);
++    handle_ = params.handle;
++    conditional_type_ = params.type;
++    body_count_ = params.size;
++    return hipSuccess;
++  }
++
++ private:
++  bool ReadCondition(hip::Stream* stream, unsigned int* condition) {
++    if (condition == nullptr) {
++      return false;
++    }
++    stream->finish();
++    return ihipMemcpy(condition, reinterpret_cast<const void*>(handle_), sizeof(*condition),
++                      hipMemcpyDeviceToHost, *stream, false, false) == hipSuccess;
++  }
++
++  void ExecuteBody(hip::Stream* stream) {
++    if (ConditionalGraphDebugEnabled()) {
++      std::fprintf(stderr, "[conditional-debug] conditional-body-begin node=%p source=%p nodes=%zu\\n",
++                   static_cast<void*>(this), static_cast<void*>(source_graph_),
++                   source_graph_ == nullptr ? 0 : source_graph_->GetNodeCount());
++    }
++    if (source_graph_ != nullptr) {
++      // Warp may populate the body graph after the conditional node is created.
++      // Walk nested child graphs explicitly so a captured subgraph is dispatched
++      // exactly once before the condition-update node is evaluated.
++      if (!ExecuteGraphNodes(source_graph_, stream, 0)) {
++        if (ConditionalGraphDebugEnabled()) {
++          std::fprintf(stderr, "[conditional-debug] execute-body-failed source=%p\\n",
++                       static_cast<void*>(source_graph_));
++        }
++      }
++      if (ConditionalGraphDebugEnabled()) {
++        std::fprintf(stderr, "[conditional-debug] conditional-body-end node=%p\\n",
++                     static_cast<void*>(this));
++      }
++      return;
++    }
++    for (auto node : topoOrder_) {
++      node->SetStream(stream);
++      if (node->CreateCommand(stream) != hipSuccess) {
++        return;
++      }
++      node->EnqueueCommands(stream);
++    }
++  }
++
++  bool ExecuteGraphNodes(Graph* graph, hip::Stream* stream, unsigned int depth) {
++    if (graph == nullptr || stream == nullptr || depth > 32) {
++      return false;
++    }
++    graph->ScheduleNodes();
++    std::vector<Node> order;
++    if (!graph->TopologicalOrder(order)) {
++      return false;
++    }
++    if (ConditionalGraphDebugEnabled()) {
++      std::fprintf(stderr, "[conditional-debug] body-order graph=%p depth=%u nodes=%zu\\n",
++                   static_cast<void*>(graph), depth, order.size());
++    }
++    for (auto node : order) {
++      if (ConditionalGraphDebugEnabled()) {
++        std::fprintf(stderr, "[conditional-debug] body-node graph=%p node=%p type=%d id=%d\\n",
++                     static_cast<void*>(graph), static_cast<void*>(node),
++                     node == nullptr ? -1 : static_cast<int>(node->GetType()),
++                     node == nullptr ? -1 : node->GetID());
++      }
++      if (node == nullptr) {
++        return false;
++      }
++      node->SetStream(stream);
++      if (node->GetType() == hipGraphNodeTypeGraph) {
++        if (!ExecuteGraphNodes(node->GetChildGraph(), stream, depth + 1)) {
++          return false;
++        }
++        continue;
++      }
++      if (node->CreateCommand(stream) != hipSuccess) {
++        return false;
++      }
++      node->EnqueueCommands(stream);
++    }
++    if (ConditionalGraphDebugEnabled()) {
++      std::fprintf(stderr, "[conditional-debug] body-order-done graph=%p depth=%u\\n",
++                   static_cast<void*>(graph), depth);
++    }
++    return true;
++  }
++
++  // Warp creates the conditional node before populating this body graph.
++  Graph* source_graph_ = nullptr;
++  hipGraphConditionalHandle handle_ = 0;
++  hipGraphConditionalNodeType conditional_type_ = hipGraphCondTypeWhile;
++  unsigned int body_count_ = 0;
++};
++
+ class GraphKernelNode : public GraphNode {
+   hipKernelNodeParams kernelParams_;   //!< Kernel node parameters
+   unsigned int numParams_;             //!< No. of kernel params as part of signature
+@@ -2396,24 +2648,41 @@ class GraphMemAllocNode final : public GraphNode {
+   class VirtualMemAllocNode : public amd::VirtualMapCommand {
+    public:
+     VirtualMemAllocNode(amd::HostQueue& queue, const amd::Event::EventWaitList& eventWaitList,
+-                        amd::Memory* va, size_t size, amd::Memory* memory, Graph* graph)
+-        : VirtualMapCommand(queue, eventWaitList, va->getSvmPtr(), size, memory),
++                        void* virtual_ptr, amd::Memory* va, size_t size, amd::Memory* memory,
++                        Graph* graph)
++        : VirtualMapCommand(queue, eventWaitList, virtual_ptr, size, memory),
+           va_(va),
+           graph_(graph) {}
+ 
+     virtual void submit(device::VirtualDevice& device) final {
++      if (ConditionalGraphDebugEnabled()) {
++        std::fprintf(stderr,
++                     "[conditional-debug] memalloc-submit-begin cmd=%p va=%p ptr=%p size=%zu "
++                     "memory=%p graph=%p queue=%p\\n",
++                     static_cast<void*>(this), static_cast<void*>(va_), ptr(), size_,
++                     static_cast<void*>(memory_), static_cast<void*>(graph_),
++                     static_cast<void*>(queue()));
++      }
+       // Remove VA reference from the global mapping. Runtime has to keep a dummy reference for
+       // validation logic during the capture or creation of the nodes
+       if (!AMD_DIRECT_DISPATCH) {
+         WorkerThreadLock_.lock();
+       }
+-      if (amd::MemObjMap::FindMemObj(va_->getSvmPtr())) {
+-        amd::MemObjMap::RemoveMemObj(va_->getSvmPtr());
++      if (amd::MemObjMap::FindMemObj(ptr())) {
++        amd::MemObjMap::RemoveMemObj(ptr());
++      }
++      if (ConditionalGraphDebugEnabled()) {
++        std::fprintf(stderr, "[conditional-debug] memalloc-submit-va-removed cmd=%p\\n",
++                     static_cast<void*>(this));
+       }
+       // Allocate real memory for mapping
+       const auto& dev_info = queue()->device().info();
+       auto aligned_size = amd::alignUp(size_, dev_info.virtualMemAllocGranularity_);
+       auto dptr = graph_->AllocateMemory(aligned_size, static_cast<hip::Stream*>(queue()), nullptr);
++      if (ConditionalGraphDebugEnabled()) {
++        std::fprintf(stderr, "[conditional-debug] memalloc-submit-allocated cmd=%p dptr=%p size=%zu\\n",
++                     static_cast<void*>(this), dptr, aligned_size);
++      }
+       if (dptr == nullptr) {
+         setStatus(CL_INVALID_OPERATION);
+         if (!AMD_DIRECT_DISPATCH) {
+@@ -2424,20 +2693,44 @@ class GraphMemAllocNode final : public GraphNode {
+       size_t offset = 0;
+       // Get memory object associated with the real allocation
+       memory_ = getMemoryObject(dptr, offset);
++      if (ConditionalGraphDebugEnabled()) {
++        std::fprintf(stderr, "[conditional-debug] memalloc-submit-memory cmd=%p memory=%p\\n",
++                     static_cast<void*>(this), static_cast<void*>(memory_));
++      }
+       // Retain memory object because command release will release it
+       memory_->retain();
+       size_ = aligned_size;
+       // Execute the original mapping command
++      if (ConditionalGraphDebugEnabled()) {
++        std::fprintf(stderr, "[conditional-debug] memalloc-submit-map-before cmd=%p\\n",
++                     static_cast<void*>(this));
++      }
+       VirtualMapCommand::submit(device);
++      if (ConditionalGraphDebugEnabled()) {
++        std::fprintf(stderr, "[conditional-debug] memalloc-submit-map-after cmd=%p\\n",
++                     static_cast<void*>(this));
++      }
+       if (!AMD_DIRECT_DISPATCH) {
+         WorkerThreadLock_.unlock();
+       }
+-      amd::Memory* vaddr_sub_obj = amd::MemObjMap::FindMemObj(va_->getSvmPtr());
++      amd::Memory* vaddr_sub_obj = amd::MemObjMap::FindMemObj(ptr());
++      if (ConditionalGraphDebugEnabled()) {
++        std::fprintf(stderr, "[conditional-debug] memalloc-submit-vaddr cmd=%p obj=%p\\n",
++                     static_cast<void*>(this), static_cast<void*>(vaddr_sub_obj));
++      }
+       assert(vaddr_sub_obj != nullptr);
+-      queue()->device().SetMemAccess(vaddr_sub_obj->getSvmPtr(), aligned_size,
++      queue()->device().SetMemAccess(const_cast<void*>(ptr()), aligned_size,
+                                      amd::Device::VmmAccess::kReadWrite);
++      if (ConditionalGraphDebugEnabled()) {
++        std::fprintf(stderr, "[conditional-debug] memalloc-submit-access cmd=%p\\n",
++                     static_cast<void*>(this));
++      }
+       va_->retain();
+       graph_->IncrementMemAllocNodeCount();  // Increment count of unreleased mem alloc nodes
++      if (ConditionalGraphDebugEnabled()) {
++        std::fprintf(stderr, "[conditional-debug] memalloc-submit-end cmd=%p\\n",
++                     static_cast<void*>(this));
++      }
+       ClPrint(amd::LOG_DETAIL_DEBUG, amd::LOG_MEM_POOL, "Graph MemAlloc execute [%p-%p], %p",
+               vaddr_sub_obj->getSvmPtr(),
+               reinterpret_cast<char*>(vaddr_sub_obj->getSvmPtr()) + aligned_size, memory());
+@@ -2468,7 +2761,7 @@ class GraphMemAllocNode final : public GraphNode {
+       if (va_->referenceCount() == 1) {
+         auto graph = GetParentGraph();
+         if (graph != nullptr) {
+-          graph->FreeAddress(va_->getSvmPtr());
++          graph->FreeAddress(node_params_.dptr);
+         }
+       }
+ 
+@@ -2479,27 +2772,45 @@ class GraphMemAllocNode final : public GraphNode {
+   virtual GraphNode* clone() const final { return new GraphMemAllocNode(*this); }
+ 
+   virtual hipError_t CreateCommand(hip::Stream* stream) final {
++    if (ConditionalGraphDebugEnabled()) {
++      std::fprintf(stderr,
++                   "[conditional-debug] memalloc-create node=%p stream=%p parent=%p va=%p "
++                   "dptr=%p bytes=%zu vm=%d\\n",
++                   static_cast<void*>(this), static_cast<void*>(stream),
++                   static_cast<void*>(GetParentGraph()), static_cast<void*>(va_),
++                   node_params_.dptr, node_params_.bytesize, HIP_MEM_POOL_USE_VM ? 1 : 0);
++    }
+     auto error = GraphNode::CreateCommand(stream);
++    if (ConditionalGraphDebugEnabled()) {
++      std::fprintf(stderr, "[conditional-debug] memalloc-base-created node=%p error=%d\\n",
++                   static_cast<void*>(this), static_cast<int>(error));
++    }
+     if (!HIP_MEM_POOL_USE_VM) {
+       auto ptr = Execute(stream_);
+     } else {
+       auto graph = GetParentGraph();
+       if (graph != nullptr) {
++        if (ConditionalGraphDebugEnabled()) {
++          std::fprintf(stderr,
++                       "[conditional-debug] memalloc-vm-before node=%p va=%p device=%p pool=%p\\n",
++                       static_cast<void*>(this), static_cast<void*>(va_),
++                       static_cast<void*>(stream == nullptr ? nullptr : stream->GetDevice()),
++                       static_cast<void*>(stream == nullptr || stream->GetDevice() == nullptr
++                                               ? nullptr
++                                               : stream->GetDevice()->GetGraphMemoryPool()));
++        }
+         assert(va_ != nullptr && "Runtime can't create a command for an invalid node!");
+         stream->GetDevice()->GetGraphMemoryPool()->SetGraphInUse();
+         // Create command for memory mapping
+-        auto cmd = new VirtualMemAllocNode(*stream, amd::Event::EventWaitList{}, va_,
+-                                           node_params_.bytesize, nullptr, graph);
++        auto cmd = new VirtualMemAllocNode(*stream, amd::Event::EventWaitList{},
++                                           node_params_.dptr, va_, node_params_.bytesize,
++                                           nullptr, graph);
+         commands_.push_back(cmd);
+-        size_t offset = 0;
+-        // Check if memory was already added after first reserve
+-        if (getMemoryObject(node_params_.dptr, offset) == nullptr) {
+-          // Map VA in the accessible space because the graph execution still has
+-          // pointers validation and must find a valid object
+-          // @note: Memory can be released outside of the graph and
+-          // runtime can't keep a valid mapping since it doesn't know if the graph will
+-          // be executed again
+-          amd::MemObjMap::AddMemObj(node_params_.dptr, va_);
++        // The backend virtual-remap command resolves the reserved range through
++        // the virtual-address map. The physical view is inserted into the regular
++        // map only after the remap succeeds.
++        if (amd::MemObjMap::FindVirtualMemObj(node_params_.dptr) == nullptr) {
++          amd::MemObjMap::AddVirtualMemObj(node_params_.dptr, va_);
+         }
+         ClPrint(amd::LOG_DETAIL_DEBUG, amd::LOG_MEM_POOL, "Graph MemAlloc create: %p", node_params_.dptr);
+       }
+@@ -2514,7 +2825,7 @@ class GraphMemAllocNode final : public GraphNode {
+       if (node_params_.dptr != nullptr) {
+         // Find VA and map in the accessible space so capture can find a valid object
+         va_ = amd::MemObjMap::FindVirtualMemObj(node_params_.dptr);
+-        amd::MemObjMap::AddMemObj(node_params_.dptr, va_);
++        amd::MemObjMap::AddVirtualMemObj(node_params_.dptr, va_);
+       }
+       ClPrint(amd::LOG_DETAIL_DEBUG, amd::LOG_MEM_POOL, "Graph MemAlloc reserve VA: %p", node_params_.dptr);
+     }
+diff --git a/hipamd/src/hip_hcc.map.in b/hipamd/src/hip_hcc.map.in
+index f26fc61..d87c6d5 100644
+--- a/hipamd/src/hip_hcc.map.in
++++ b/hipamd/src/hip_hcc.map.in
+@@ -289,6 +289,8 @@ local:
+ hip_4.3 {
+ global:
+     hipGraphCreate;
++    hipGraphConditionalHandleCreate;
++    hipGraphConditionalHandleDestroy;
+     hipGraphDestroy;
+     hipGraphAddKernelNode;
+     hipGraphAddMemsetNode;
+diff --git a/hipamd/src/hip_internal.hpp b/hipamd/src/hip_internal.hpp
+index e533c7d..d375e5c 100644
+--- a/hipamd/src/hip_internal.hpp
++++ b/hipamd/src/hip_internal.hpp
+@@ -672,6 +672,7 @@ public:
+   extern int ihipGetDevice();
+ 
+   extern hipError_t ihipMalloc(void** ptr, size_t sizeBytes, unsigned int flags);
++  extern hipError_t ihipFree(void* ptr);
+   extern hipError_t ihipHostMalloc(void** ptr, size_t sizeBytes, unsigned int flags);
+   extern amd::Memory* getMemoryObject(const void* ptr, size_t& offset, size_t size = 0);
+   extern amd::Memory* getMemoryObjectWithOffset(const void* ptr, const size_t size = 0);
+diff --git a/hipamd/src/hip_table_interface.cpp b/hipamd/src/hip_table_interface.cpp
+index 2165924..e6e86ea 100644
+--- a/hipamd/src/hip_table_interface.cpp
++++ b/hipamd/src/hip_table_interface.cpp
+@@ -24,6 +24,9 @@ namespace hip {
+ const HipDispatchTable* GetHipDispatchTable();
+ const HipCompilerDispatchTable* GetHipCompilerDispatchTable();
+ const HipToolsDispatchTable* GetHipToolsDispatchTable();
++hipError_t hipGraphConditionalHandleCreate(hipGraphConditionalHandle* pHandle, hipGraph_t graph,
++                                           unsigned int defaultLaunchValue, unsigned int flags);
++hipError_t hipGraphConditionalHandleDestroy(hipGraphConditionalHandle handle);
+ }  // namespace hip
+ 
+ extern "C" hipError_t __hipPopCallConfiguration(dim3* gridDim, dim3* blockDim, size_t* sharedMem,
+@@ -569,6 +572,13 @@ hipError_t hipGraphClone(hipGraph_t* pGraphClone, hipGraph_t originalGraph) {
+ hipError_t hipGraphCreate(hipGraph_t* pGraph, unsigned int flags) {
+   return hip::GetHipDispatchTable()->hipGraphCreate_fn(pGraph, flags);
+ }
++hipError_t hipGraphConditionalHandleCreate(hipGraphConditionalHandle* pHandle, hipGraph_t graph,
++                                           unsigned int defaultLaunchValue, unsigned int flags) {
++  return hip::hipGraphConditionalHandleCreate(pHandle, graph, defaultLaunchValue, flags);
++}
++hipError_t hipGraphConditionalHandleDestroy(hipGraphConditionalHandle handle) {
++  return hip::hipGraphConditionalHandleDestroy(handle);
++}
+ hipError_t hipGraphDebugDotPrint(hipGraph_t graph, const char* path, unsigned int flags) {
+   return hip::GetHipDispatchTable()->hipGraphDebugDotPrint_fn(graph, path, flags);
+ }
+@@ -2056,4 +2066,4 @@ hipError_t hipKernelGetLibrary(hipLibrary_t* library, hipKernel_t kernel) {
+ }
+ hipError_t hipKernelGetName(const char** name, hipKernel_t kernel) {
+   return hip::GetHipDispatchTable()->hipKernelGetName_fn(name, kernel);
+-}
+\ No newline at end of file
++}

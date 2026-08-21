@@ -771,6 +771,17 @@ def build_dll_for_arch(args, dll_path, cpp_paths, cu_paths, arch, libs: list[str
                 version = ""
 
         cpp_flags = f'-Werror -Wuninitialized {version} --std=c++17 -fno-rtti -D{cuda_enabled} -D{mathdx_enabled} -D{cuda_compat_enabled} -fPIC -fvisibility=hidden -fvisibility-inlines-hidden -D_GLIBCXX_USE_CXX11_ABI=0 -I"{native_dir}" {includes} '
+        # The experimental HIP conditional extension changes the graph-node ABI.
+        # Propagate the opt-in to host C++ compilation as well as HIP device
+        # compilation; otherwise cuda_util.cpp sees CUgraphNodeParams as void.
+        hip_conditional_ext = hip_enabled and os.environ.get("WP_ENABLE_HIP_CONDITIONAL_EXT", "0").lower() in (
+            "1",
+            "true",
+            "yes",
+            "on",
+        )
+        if hip_conditional_ext:
+            cpp_flags += " -DHIP_GRAPH_CONDITIONAL_EXT=1 "
         if hip_enabled:
             cpp_flags += " -D__HIP_PLATFORM_AMD__ "
 
@@ -830,16 +841,18 @@ def build_dll_for_arch(args, dll_path, cpp_paths, cu_paths, arch, libs: list[str
                         # leaks into the mangled names of std::string-taking helpers like
                         # apic_load_graph_cuda_setup, breaking the host<->HIP link step.
                         hip_abi_flags = "-fvisibility-inlines-hidden -D_GLIBCXX_USE_CXX11_ABI=0"
+                        hip_ext_flag = "-DHIP_GRAPH_CONDITIONAL_EXT=1 " if hip_conditional_ext else ""
                         if mode == "debug":
                             cuda_cmd = (
                                 f'{hipcc_cmd} -x hip -std=c++17 -g -O0 -fPIC -fvisibility=hidden {hip_abi_flags} '
-                                f'-D_DEBUG -D_ITERATOR_DEBUG_LEVEL=0 {hip_fp_flags} {hip_arch_flags} {hip_extra_flags} -DWP_ENABLE_CUDA=1 '
+                                f'-D_DEBUG -D_ITERATOR_DEBUG_LEVEL=0 {hip_fp_flags} {hip_arch_flags} {hip_extra_flags} {hip_ext_flag}-DWP_ENABLE_CUDA=1 '
                                 f'-I"{native_dir}" -D{mathdx_enabled} {libmathdx_includes} -o "{cu_out}" -c "{cu_path}"'
                             )
                         elif mode == "release":
+                            hip_ext_flag = "-DHIP_GRAPH_CONDITIONAL_EXT=1 " if hip_conditional_ext else ""
                             cuda_cmd = (
                                 f'{hipcc_cmd} -x hip -std=c++17 -O3 -fPIC -fvisibility=hidden {hip_abi_flags} -DNDEBUG '
-                                f'{hip_fp_flags} {hip_arch_flags} {hip_extra_flags} -DWP_ENABLE_CUDA=1 -I"{native_dir}" -D{mathdx_enabled} '
+                                f'{hip_fp_flags} {hip_arch_flags} {hip_extra_flags} {hip_ext_flag}-DWP_ENABLE_CUDA=1 -I"{native_dir}" -D{mathdx_enabled} '
                                 f'{libmathdx_includes} -o "{cu_out}" -c "{cu_path}"'
                             )
                     elif cuda_compiler == "nvcc":

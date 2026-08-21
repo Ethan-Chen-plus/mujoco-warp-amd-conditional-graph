@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "benchmark_status": "frozen_primary_run",
+  "benchmark_status": "frozen_compatibility_run",
   "benchmark": "mujoco_warp_humanoid_contact_capture_while",
   "hardware": {
     "host": "AMD Ryzen AI Max+ 395",

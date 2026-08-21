@@ -29,6 +29,18 @@ KNOWN_UPSTREAM_REVISIONS = {
 
 def git_revision(path: Path, fallback: str) -> str:
     try:
+        top_level = Path(
+            subprocess.check_output(
+                ["git", "-C", str(path), "rev-parse", "--show-toplevel"],
+                text=True,
+                stderr=subprocess.DEVNULL,
+            ).strip()
+        ).resolve()
+        # The public bundle may itself be the nearest Git worktree for the
+        # vendored source snapshots. In that case its HEAD is not the upstream
+        # source revision; use the pinned revision recorded by the bundle.
+        if top_level == ROOT.resolve():
+            return fallback
         return subprocess.check_output(
             ["git", "-C", str(path), "rev-parse", "HEAD"],
             text=True,
@@ -57,6 +69,10 @@ def main() -> None:
         ROOT / "upstream/mujoco_warp/mujoco_warp/_src/warp_util.py",
         ROOT / "upstream/warp/warp/_src/context.py",
         ROOT / "upstream/warp/warp/__init__.py",
+        ROOT / "upstream/warp/warp/_src/build_dll.py",
+        ROOT / "upstream/warp/warp/native/cuda_util.cpp",
+        ROOT / "upstream/warp/warp/native/hip_util.h",
+        ROOT / "upstream/warp/warp/native/warp.cu",
     ]
     for path in source_paths:
         if path.exists():
@@ -66,6 +82,8 @@ def main() -> None:
         files.append({"path": str(binary.relative_to(ROOT)), "sha256": sha256(binary), "bytes": binary.stat().st_size})
     for path in sorted((ROOT / "results").glob("hip_execution_attempt*.txt")):
         files.append({"path": str(path.relative_to(ROOT)), "sha256": sha256(path), "bytes": path.stat().st_size})
+    for path in sorted((ROOT / "results").glob("conditional_while_device*.txt")):
+        files.append({"path": str(path.relative_to(ROOT)), "sha256": sha256(path), "bytes": path.stat().st_size})
     for pattern in (
         "hip_*.json",
         "warp_gpu_smoke*.json",
@@ -73,9 +91,12 @@ def main() -> None:
         "mjwarp_*.json",
         "mjwarp_cpu_semantics.json",
         "capability_probe*.json",
+        "native_conditional_*.json",
     ):
         for path in sorted((ROOT / "results").glob(pattern)):
             files.append({"path": str(path.relative_to(ROOT)), "sha256": sha256(path), "bytes": path.stat().st_size})
+    for path in sorted((ROOT / "results/mjwarp_native_conditional_amd395").glob("*.json")):
+        files.append({"path": str(path.relative_to(ROOT)), "sha256": sha256(path), "bytes": path.stat().st_size})
     for path in sorted((ROOT / "upstream/warp/warp/bin").glob("warp*.so")):
         files.append({"path": str(path.relative_to(ROOT)), "sha256": sha256(path), "bytes": path.stat().st_size})
     manifest = {

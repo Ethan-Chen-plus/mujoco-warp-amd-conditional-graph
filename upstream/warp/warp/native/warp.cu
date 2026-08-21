@@ -3273,8 +3273,10 @@ bool wp_cuda_graph_resume_capture(void* context, void* stream, void* graph)
     return true;
 }
 
-// Support for conditional graph nodes available with CUDA 12.4+.
-#if !defined(__HIP_PLATFORM_AMD__) && CUDA_VERSION >= 12040
+// Support for conditional graph nodes available with CUDA 12.4+ or the
+// opt-in HIP/CLR conditional extension.  The latter is an experimental
+// runtime integration and must be built against the matching patched SDK.
+#if (!defined(__HIP_PLATFORM_AMD__) && CUDA_VERSION >= 12040) || defined(HIP_GRAPH_CONDITIONAL_EXT)
 
 // CUBIN or PTX data for compiled conditional modules, loaded on demand, keyed on device architecture
 using ModuleKey = std::pair<int, bool>;  // <arch, use_ptx>
@@ -3284,27 +3286,36 @@ static std::map<ModuleKey, void*> g_conditional_modules;
 static void* compile_conditional_module(int arch, bool use_ptx)
 {
     static const char* kernel_source = R"(
-        typedef __device_builtin__ unsigned long long cudaGraphConditionalHandle;
-        extern "C" __device__ __cudart_builtin__ void cudaGraphSetConditional(cudaGraphConditionalHandle handle, unsigned int value);
+        #if defined(__HIP_PLATFORM_AMD__)
+        #include <hip/hip_runtime.h>
+        using wpGraphConditionalHandle = hipGraphConditionalHandle;
+        extern "C" __device__ __forceinline__ void wpGraphSetConditional(wpGraphConditionalHandle handle, unsigned int value)
+        {
+            atomicExch(reinterpret_cast<unsigned int*>(handle), value);
+        }
+        #else
+        typedef __device_builtin__ unsigned long long wpGraphConditionalHandle;
+        extern "C" __device__ __cudart_builtin__ void wpGraphSetConditional(wpGraphConditionalHandle handle, unsigned int value);
+        #endif
 
-        extern "C" __global__ void set_conditional_if_handle_kernel(cudaGraphConditionalHandle handle, int* value)
+        extern "C" __global__ void set_conditional_if_handle_kernel(wpGraphConditionalHandle handle, int* value)
         {
             if (threadIdx.x + blockIdx.x * blockDim.x == 0)
-                cudaGraphSetConditional(handle, *value);
+                wpGraphSetConditional(handle, *value);
         }
 
-        extern "C" __global__ void set_conditional_else_handle_kernel(cudaGraphConditionalHandle handle, int* value)
+        extern "C" __global__ void set_conditional_else_handle_kernel(wpGraphConditionalHandle handle, int* value)
         {
             if (threadIdx.x + blockIdx.x * blockDim.x == 0)
-                cudaGraphSetConditional(handle, !*value);
+                wpGraphSetConditional(handle, !*value);
         }
 
-        extern "C" __global__ void set_conditional_if_else_handles_kernel(cudaGraphConditionalHandle if_handle, cudaGraphConditionalHandle else_handle, int* value)
+        extern "C" __global__ void set_conditional_if_else_handles_kernel(wpGraphConditionalHandle if_handle, wpGraphConditionalHandle else_handle, int* value)
         {
             if (threadIdx.x + blockIdx.x * blockDim.x == 0)
             {
-                cudaGraphSetConditional(if_handle, *value);
-                cudaGraphSetConditional(else_handle, !*value);
+                wpGraphSetConditional(if_handle, *value);
+                wpGraphSetConditional(else_handle, !*value);
             }
         }
     )";
@@ -3320,12 +3331,36 @@ static void* compile_conditional_module(int arch, bool use_ptx)
         return NULL;
 
     char arch_opt[128];
+#if defined(__HIP_PLATFORM_AMD__)
+    // Warp's public ABI historically carries a numeric CUDA arch here.  HIP
+    // needs the full gfx target, so resolve it from the active device instead
+    // of truncating the string through the Python ctypes boundary.
+    hipDeviceProp_t props{};
+    int device = 0;
+    if (hipGetDevice(&device) != hipSuccess || hipGetDeviceProperties(&props, device) != hipSuccess)
+        return NULL;
+    snprintf(arch_opt, sizeof(arch_opt), "--gpu-architecture=%s", props.gcnArchName);
+#else
     if (use_ptx)
         snprintf(arch_opt, sizeof(arch_opt), "--gpu-architecture=compute_%d", arch);
     else
         snprintf(arch_opt, sizeof(arch_opt), "--gpu-architecture=sm_%d", arch);
+#endif
 
     std::vector<const char*> opts;
+#if defined(__HIP_PLATFORM_AMD__)
+    // HIPRTC does not inherit HIP's driver include search path. Add the
+    // runtime headers explicitly so the conditional helper kernel can use
+    // hipGraphConditionalHandle on ROCm installations outside /opt/rocm.
+    const char* rocm_env = std::getenv("ROCM_PATH");
+    if (rocm_env == nullptr || rocm_env[0] == '\0') {
+        rocm_env = std::getenv("ROCM_HOME");
+    }
+    const std::string rocm_root =
+        (rocm_env != nullptr && rocm_env[0] != '\0') ? rocm_env : "/opt/rocm";
+    const std::string hip_include_opt = "-I" + rocm_root + "/include";
+    opts.push_back(hip_include_opt.c_str());
+#endif
     opts.push_back(arch_opt);
 
     const bool print_debug = (std::getenv("WARP_DEBUG") != nullptr);
@@ -3359,12 +3394,23 @@ static void* compile_conditional_module(int arch, bool use_ptx)
                 g_conditional_modules[key] = output;
         }
     } else {
+#if defined(__HIP_PLATFORM_AMD__)
+        // HIPRTC returns the loadable device image through the generic code
+        // accessors; the CUDA CUBIN accessors are not meaningful on HIP.
+        check_nvrtc(nvrtcGetPTXSize(prog, &output_size));
+        if (output_size > 0) {
+            output = new char[output_size];
+            if (check_nvrtc(nvrtcGetPTX(prog, output)))
+                g_conditional_modules[key] = output;
+        }
+#else
         check_nvrtc(nvrtcGetCUBINSize(prog, &output_size));
         if (output_size > 0) {
             output = new char[output_size];
             if (check_nvrtc(nvrtcGetCUBIN(prog, output)))
                 g_conditional_modules[key] = output;
         }
+#endif
     }
 
     nvrtcDestroyProgram(&prog);

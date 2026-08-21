@@ -37,11 +37,22 @@ def validate_required_files() -> None:
         "CITATION.cff",
         "scripts/bootstrap_amd395_env.sh",
         "scripts/run_mjwarp_amd_benchmark.sh",
+        "scripts/run_native_mjwarp_benchmark.sh",
+        "scripts/run_mjwarp_variant.py",
+        "scripts/compare_native_mjwarp.py",
         "docs/technical-report.md",
         "docs/native-conditional-node-plan.md",
         "patches/warp-hip-conditional.diff",
         "patches/mujoco-warp-amd.diff",
+        "patches/hip-clr-conditional.diff",
+        "patches/hip-sdk-conditional.diff",
+        "hip/conditional_while_device.cpp",
+        "hip/conditional_while_benchmark.cpp",
         "results/mjwarp_humanoid_conditional_rocm721.json",
+        "results/mjwarp_native_conditional_amd395/summary.json",
+        "results/mjwarp_native_aloha_amd395.json",
+        "results/native_conditional_handle_benchmark_amd395.json",
+        "results/conditional_while_device_amd395.txt",
         "results/mujoco_warp_import_rocm721_py312.json",
         "results/source_manifest.json",
         "results/SHA256SUMS",
@@ -51,21 +62,34 @@ def validate_required_files() -> None:
         raise FileNotFoundError("missing required files: " + ", ".join(missing))
 
 
-def validate_primary_result() -> None:
+def validate_compatibility_result() -> None:
     result = load_json("results/mjwarp_humanoid_conditional_rocm721.json")
     comparison = result["comparison"]
     correctness = comparison["correctness"]
     speedup = float(comparison["throughput_speedup"])
     qpos_error = float(correctness["max_abs_qpos_error"])
     qvel_error = float(correctness["max_abs_qvel_error"])
-    if result.get("benchmark_status") != "frozen_primary_run":
-        raise ValueError("primary result is not marked frozen_primary_run")
+    if result.get("benchmark_status") != "frozen_compatibility_run":
+        raise ValueError("compatibility result is not marked frozen_compatibility_run")
     if speedup <= 1.0:
         raise ValueError(f"primary speedup is not above 1.0: {speedup}")
     if qpos_error > 1e-5 or qvel_error > 1e-5:
         raise ValueError(f"state error exceeds tolerance: {qpos_error}, {qvel_error}")
     if correctness.get("numerically_equivalent") is not True:
         raise ValueError("primary correctness gate is false")
+
+
+def validate_native_result() -> None:
+    result = load_json("results/mjwarp_native_conditional_amd395/summary.json")
+    if result.get("execution") != "patched_hip_clr_runtime":
+        raise ValueError("native result does not identify the patched HIP/CLR runtime")
+    if float(result["throughput_speedup"]) <= 1.0:
+        raise ValueError("native primary speedup is not above 1.0")
+    if result.get("numerically_equivalent") is not True:
+        raise ValueError("native correctness gate is false")
+    for key in ("max_abs_qpos_error", "max_abs_qvel_error", "max_abs_time_error"):
+        if float(result[key]) > 1e-5:
+            raise ValueError(f"native state error exceeds tolerance: {key}")
 
 
 def validate_import_probe() -> None:
@@ -114,7 +138,8 @@ def main() -> int:
     parser.add_argument("--skip-sha", action="store_true")
     args = parser.parse_args()
     validate_required_files()
-    validate_primary_result()
+    validate_compatibility_result()
+    validate_native_result()
     validate_import_probe()
     validate_manifest()
     if not args.skip_sha:

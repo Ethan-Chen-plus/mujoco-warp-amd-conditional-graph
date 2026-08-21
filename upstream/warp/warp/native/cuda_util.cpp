@@ -995,13 +995,15 @@ CUresult cuGraphAddNode_f(
 )
 {
 #if defined(__HIP_PLATFORM_AMD__)
-    (void)phGraphNode;
     (void)hGraph;
-    (void)dependencies;
     (void)dependencyData;
-    (void)numDependencies;
-    (void)nodeParams;
-    return CUDA_ERROR_NOT_SUPPORTED;
+    return hipGraphAddNode(
+        reinterpret_cast<hipGraphNode_t*>(phGraphNode),
+        reinterpret_cast<hipGraph_t>(hGraph),
+        reinterpret_cast<const hipGraphNode_t*>(dependencies),
+        numDependencies,
+        reinterpret_cast<hipGraphNodeParams*>(nodeParams)
+    );
 #else
     return pfn_cuGraphAddNode
         ? pfn_cuGraphAddNode(phGraphNode, hGraph, dependencies, dependencyData, numDependencies, nodeParams)

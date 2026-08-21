@@ -1,0 +1,133 @@
+diff --git a/include/hip/hip_runtime.h b/include/hip/hip_runtime.h
+index 7834d0e..3896c37 100644
+--- a/include/hip/hip_runtime.h
++++ b/include/hip/hip_runtime.h
+@@ -67,4 +67,37 @@ THE SOFTWARE.
+ #endif  // !defined(__HIPCC_RTC__)
+ #include <hip/hip_vector_types.h>
+ 
++// HIPRTC does not include hip_runtime_api.h, but the experimental device setter
++// still needs the handle type when conditional helper kernels are compiled.
++#ifndef HIP_GRAPH_CONDITIONAL_HANDLE_DEFINED
++#define HIP_GRAPH_CONDITIONAL_HANDLE_DEFINED 1
++typedef unsigned long long hipGraphConditionalHandle;
++#endif
++#ifndef HIP_GRAPH_CONDITIONAL_EXT
++#define HIP_GRAPH_CONDITIONAL_EXT 1
++#endif
++
++/**
++ * Writes the device-resident value used by an experimental conditional graph node.
++ *
++ * HIPRTC supplies its own generated runtime header.  The Warp conditional helper
++ * kernels define their setter locally, so exporting this inline helper into the
++ * HIPRTC generated header would create an ABI/type dependency before the custom
++ * runtime declarations are visible.
++ */
++#if !defined(__HIPCC_RTC__)
++#if defined(__HIP_DEVICE_COMPILE__)
++__host__ __device__ __forceinline__ void hipGraphSetConditional(hipGraphConditionalHandle handle,
++                                                                unsigned int value) {
++  atomicExch(reinterpret_cast<unsigned int*>(handle), value);
++}
++#else
++__host__ __device__ __forceinline__ void hipGraphSetConditional(hipGraphConditionalHandle handle,
++                                                                unsigned int value) {
++  (void)handle;
++  (void)value;
++}
++#endif
++#endif
++
+ #endif
+diff --git a/include/hip/hip_runtime_api.h b/include/hip/hip_runtime_api.h
+index 9eb4bba..28c17d4 100644
+--- a/include/hip/hip_runtime_api.h
++++ b/include/hip/hip_runtime_api.h
+@@ -1456,6 +1456,25 @@ typedef struct hipGraphNode* hipGraphNode_t;
+  */
+ typedef struct hipGraphExec* hipGraphExec_t;
+ 
++/**
++ * Device-resident condition value used by experimental HIP conditional graph nodes.
++ *
++ * This extension is intentionally ABI-compatible with CUDA's conditional handle shape.  The
++ * handle is created by hipGraphConditionalHandleCreate and may be written from device code with
++ * hipGraphSetConditional.
++ */
++// Experimental conditional-graph handle.  Guard the typedef because HIPRTC
++// skips hip_runtime_api.h while hip_runtime.h still supplies the device setter.
++#ifndef HIP_GRAPH_CONDITIONAL_HANDLE_DEFINED
++#define HIP_GRAPH_CONDITIONAL_HANDLE_DEFINED 1
++typedef unsigned long long hipGraphConditionalHandle;
++#endif
++
++// Experimental extension marker consumed by opt-in HIP graph integrations.
++#ifndef HIP_GRAPH_CONDITIONAL_EXT
++#define HIP_GRAPH_CONDITIONAL_EXT 1
++#endif
++
+ /**
+  * An opaque value that represents a user obj
+  */
+@@ -1481,9 +1500,31 @@ typedef enum hipGraphNodeType {
+   hipGraphNodeTypeMemcpyFromSymbol = 12,   ///< MemcpyFromSymbol node
+   hipGraphNodeTypeMemcpyToSymbol = 13,     ///< MemcpyToSymbol node
+   hipGraphNodeTypeBatchMemOp = 14,         ///< BatchMemOp node
++  hipGraphNodeTypeConditional = 15,        ///< Experimental conditional graph node
+   hipGraphNodeTypeCount
+ } hipGraphNodeType;
+ 
++/** Flags accepted by hipGraphConditionalHandleCreate. */
++typedef enum hipGraphConditionalHandleFlags {
++  hipGraphCondAssignDefault = 1
++} hipGraphConditionalHandleFlags;
++
++/** Conditional graph node body selection semantics. */
++typedef enum hipGraphConditionalNodeType {
++  hipGraphCondTypeIf = 0,
++  hipGraphCondTypeWhile = 1,
++  hipGraphCondTypeSwitch = 2
++} hipGraphConditionalNodeType;
++
++/** Parameters for hipGraphNodeTypeConditional. */
++typedef struct hipConditionalNodeParams {
++  hipGraphConditionalHandle handle;
++  hipGraphConditionalNodeType type;
++  unsigned int size;
++  hipGraph_t* phGraph_out;
++  void* ctx;
++} hipConditionalNodeParams;
++
+ typedef void (*hipHostFn_t)(void* userData);
+ typedef struct hipHostNodeParams {
+   hipHostFn_t fn;
+@@ -1918,6 +1959,7 @@ typedef struct hipGraphNodeParams {
+     hipExternalSemaphoreWaitNodeParams extSemWait;
+     hipMemAllocNodeParams alloc;
+     hipMemFreeNodeParams free;
++    hipConditionalNodeParams conditional;
+   };
+ 
+   long long reserved2;
+@@ -8038,6 +8080,20 @@ hipError_t hipThreadExchangeStreamCaptureMode(hipStreamCaptureMode* mode);
+  */
+ hipError_t hipGraphCreate(hipGraph_t* pGraph, unsigned int flags);
+ 
++/**
++ * Creates a device-resident condition handle for an experimental conditional graph node.
++ *
++ * The current prototype supports hipGraphCondTypeWhile through the generic hipGraphAddNode API.
++ * The handle value is initialized before each graph launch only when hipGraphCondAssignDefault is
++ * passed in flags.  The explicit destroy call is an AMD extension for this prototype.
++ */
++hipError_t hipGraphConditionalHandleCreate(hipGraphConditionalHandle* pHandle, hipGraph_t graph,
++                                           unsigned int defaultLaunchValue __dparm(0),
++                                           unsigned int flags __dparm(0));
++
++/** Releases a handle created by hipGraphConditionalHandleCreate. */
++hipError_t hipGraphConditionalHandleDestroy(hipGraphConditionalHandle handle);
++
+ /**
+  * @brief Destroys a graph
+  *

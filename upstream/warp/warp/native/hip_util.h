@@ -439,7 +439,33 @@ using CUtexObject = hipTextureObject_t;
 using CUgraph = hipGraph_t;
 using CUgraphNode = hipGraphNode_t;
 using CUgraphNodeType = hipGraphNodeType;
+#if defined(HIP_GRAPH_CONDITIONAL_EXT)
+// The experimental HIP/CLR fork exposes the CUDA-shaped conditional graph
+// parameter block through the HIP runtime API.  Keep this alias opt-in so a
+// stock ROCm SDK continues to use the compatibility stubs below.
+using CUgraphNodeParams = hipGraphNodeParams;
+using cudaGraphConditionalHandle = hipGraphConditionalHandle;
+#define CU_GRAPH_NODE_TYPE_KERNEL hipGraphNodeTypeKernel
+#define CU_GRAPH_NODE_TYPE_MEMCPY hipGraphNodeTypeMemcpy
+#define CU_GRAPH_NODE_TYPE_MEMSET hipGraphNodeTypeMemset
+#define CU_GRAPH_NODE_TYPE_HOST hipGraphNodeTypeHost
+#define CU_GRAPH_NODE_TYPE_GRAPH hipGraphNodeTypeGraph
+#define CU_GRAPH_NODE_TYPE_EMPTY hipGraphNodeTypeEmpty
+#define CU_GRAPH_NODE_TYPE_WAIT_EVENT hipGraphNodeTypeWaitEvent
+#define CU_GRAPH_NODE_TYPE_EVENT_RECORD hipGraphNodeTypeEventRecord
+#define CU_GRAPH_NODE_TYPE_EXT_SEMAS_SIGNAL hipGraphNodeTypeExtSemaphoreSignal
+#define CU_GRAPH_NODE_TYPE_EXT_SEMAS_WAIT hipGraphNodeTypeExtSemaphoreWait
+#define CU_GRAPH_NODE_TYPE_MEM_ALLOC hipGraphNodeTypeMemAlloc
+#define CU_GRAPH_NODE_TYPE_MEM_FREE hipGraphNodeTypeMemFree
+#define CU_GRAPH_NODE_TYPE_BATCH_MEM_OP hipGraphNodeTypeBatchMemOp
+#define cudaGraphConditionalHandleCreate hipGraphConditionalHandleCreate
+#define cudaGraphConditionalHandleDestroy hipGraphConditionalHandleDestroy
+#define CU_GRAPH_NODE_TYPE_CONDITIONAL hipGraphNodeTypeConditional
+#define CU_GRAPH_COND_TYPE_IF hipGraphCondTypeIf
+#define CU_GRAPH_COND_TYPE_WHILE hipGraphCondTypeWhile
+#else
 using CUgraphNodeParams = void;
+#endif
 using CUgraphEdgeData = void;
 using CUstreamCaptureStatus = hipStreamCaptureStatus;
 using CUjit_option = int;

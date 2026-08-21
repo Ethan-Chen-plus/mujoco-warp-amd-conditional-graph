@@ -1,0 +1,13 @@
+{
+  "schema": "hip-conditional-handle-microbenchmark-v1",
+  "hardware": {
+    "host": "AMD Ryzen AI Max+ 395",
+    "gpu": "Radeon 8060S",
+    "arch": "gfx1151",
+    "rocm": "7.2.1"
+  },
+  "conditional_while_device_ms": 0.095992,
+  "static_fixed_graph_ms": 0.022152,
+  "conditional_to_static_ratio": 4.333292,
+  "interpretation": "A tiny graph exposes the control-node overhead directly. MuJoCo-Warp benefits only when avoiding host dispatch and repeated solver work is larger than this fixed overhead."
+}

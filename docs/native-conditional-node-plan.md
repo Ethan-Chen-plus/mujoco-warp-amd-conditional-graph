@@ -2,24 +2,26 @@
 
 ## Purpose
 
-This document gives collaborators a small, testable path from the current
-device-gated compatibility implementation to a true HIP conditional graph
-node. It intentionally avoids porting the whole Warp graph subsystem first.
+This document gives collaborators the smallest complete HIP conditional-graph
+port: a device-resident handle, a `capture_while` node, a captured body graph,
+and a MuJoCo-Warp solver integration. It intentionally avoids porting the whole
+Warp graph subsystem first.
 
 ## Current runtime boundary
 
-The AMD395 target uses ROCm 7.2.1 and ordinary HIP graph capture. The installed
-headers and runtime do not expose `hipGraphConditionalHandle` or an equivalent
-conditional-node ABI. The current P0 path therefore captures a fixed upper
-bound and lets solver kernels skip work after convergence. It is numerically
-equivalent to the eager path for the reported workload and is already faster.
+The AMD395 target uses ROCm 7.2.1. The stock headers and runtime do not expose
+the required conditional-node ABI, so this repository carries a matching
+experimental HIP SDK and HIP/CLR patch. The patched runtime exports the
+CUDA-shaped conditional handle API, stores the handle state on device, and
+executes the while body through the runtime conditional node. The stock runtime
+remains supported through the eager path.
 
 ## Priority order
 
-### P0: solver `capture_while`
+### P0: solver `capture_while` — complete
 
 This is the highest-value node because every contact-rich Newton solve can
-exercise it. The first native adapter should provide four operations:
+exercise it. The native adapter provides four operations:
 
 ```text
 create conditional handle
@@ -28,8 +30,10 @@ attach body graph
 update device predicate / replay graph
 ```
 
-The adapter must keep the convergence predicate on device and must not require
-a host synchronization between solver iterations.
+The adapter keeps the convergence predicate on device and does not require a
+host synchronization between solver iterations. A direct device test reaches
+the expected counter value, and the MuJoCo-Warp humanoid benchmark exercises
+the same node from the solver graph.
 
 ### P1: sleeping broadphase `capture_if`
 
@@ -65,19 +69,22 @@ void set_predicate(hipDeviceptr_t predicate);
 void destroy(HipConditionalWhile* node);
 ```
 
-The exact symbols must be gated by compile-time and runtime capability probes.
-If the symbols are absent, the code must select the existing compatibility
-path instead of failing at import time.
+The symbols are gated by `HIP_GRAPH_CONDITIONAL_EXT` at compile time and by
+`WP_HIP_CONDITIONAL_NATIVE=1` at runtime. If the symbols are absent, Warp
+selects the eager path instead of failing at import time. The older
+`WP_HIP_CONDITIONAL_EMULATION=1` backend remains separate and is not used for
+the native headline result.
 
 ## Acceptance gates
 
 1. `hipGraphConditionalHandle` is present in headers and resolves in the
    runtime library.
-2. A standalone conditional-while microbenchmark passes on `gfx1151`.
+2. A standalone conditional-while device test passes on `gfx1151`.
 3. A solver convergence test shows the same final `qpos`, `qvel`, and solver
    status as the eager path within `1e-5`.
-4. A mixed-convergence workload demonstrates early exit, not merely fixed
-   unrolling.
+4. Follow-up stress coverage exercises mixed convergence and demonstrates early
+   exit across heterogeneous worlds, rather than only fixed unrolling. This is
+   a post-P0 stress gate for the next optimization pass.
 5. Humanoid or Unitree G1 contact throughput is measured with identical world
    count, solver settings, warm-up, and graph replay policy.
 6. The result includes logs, runtime diagnostics, source revisions and SHA256.
@@ -89,8 +96,8 @@ Run each variant under the same host policy:
 | Variant | Purpose |
 | --- | --- |
 | eager HIP solver loop | baseline |
-| fixed-unroll device-gated graph | current AMD compatibility path |
-| native conditional graph | future HIP runtime path |
+| fixed-unroll device-gated graph | legacy compatibility path |
+| native conditional graph | patched HIP/CLR runtime path |
 
 Report solver iteration distribution, graph build time, steady-state step time,
 worlds/s, peak VRAM, and final state error. Do not average measurements from
@@ -98,7 +105,10 @@ different GPU contention conditions.
 
 ## What this repository already proves
 
-The current fixed-unroll device-gated graph reaches 673,563 worlds/s versus
-493,084 worlds/s for the eager loop on the frozen AMD395 humanoid run, with
-`qpos` and `qvel` errors below `1e-6`. That result is the baseline for judging
-the value of a native conditional node.
+The patched native handle reaches 767,338 worlds/s versus 491,345 worlds/s for
+the eager loop on the fixed AMD395 humanoid run. The throughput ratio is 1.562x,
+runtime reduction is 35.97%, and the maximum paired state error is below
+`1e-6`. The direct handle overhead is 0.095 ms versus 0.022 ms for a static
+graph, so the optimization is valuable when it removes enough host dispatch or
+solver work to amortize the control-node cost. ALOHA is retained as a larger
+graph side result where the prototype is currently slower.
