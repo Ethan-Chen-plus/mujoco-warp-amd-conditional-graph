@@ -19,6 +19,12 @@ capture and replay sequence on the stream policy required by the HIP runtime.
 - `scripts/collect_mjwarp_benchmark.py`: parses logs and writes the summary.
 - `scripts/run_capability_probe.py`: records runtime graph capabilities.
 - `scripts/write_manifest.py`: hashes source and evidence files.
+- `scripts/run_mjwarp_sleeping_benchmark.py`: runs one ALOHA variant with
+  dynamic or freeze-after-warmup fixture selection.
+- `scripts/run_aloha_sleeping_if_benchmark.sh`: runs eager, static, and native
+  ALOHA paths under one protocol.
+- `scripts/summarize_aloha_sleeping_if.py`: writes the paired wake-predicate
+  and throughput summary.
 
 ## Evidence flow
 
@@ -33,3 +39,10 @@ AMD395 host
 
 The frozen primary artifact is kept separate from shared-GPU revalidation so a
 later run cannot silently change the headline comparison.
+
+The P1 revalidation artifact is
+`results/aloha_sleeping_if_amd395_revalidation/summary.json`. It is a separate
+integration result and does not replace the frozen humanoid result.
+
+`results/aloha_sleeping_if_amd395_manual_branch/summary.json` records the
+AMD395 manual-predicate branch-coverage run for the native `capture_if` path.

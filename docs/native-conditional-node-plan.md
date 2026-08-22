@@ -35,12 +35,29 @@ host synchronization between solver iterations. A direct device test reaches
 the expected counter value, and the MuJoCo-Warp humanoid benchmark exercises
 the same node from the solver graph.
 
-### P1: sleeping broadphase `capture_if`
+### P1: sleeping broadphase `capture_if` — experimental adapter implemented
 
 When sleeping is enabled and no body wakes, MuJoCo-Warp can skip an incremental
-broadphase pass. This should be evaluated on a deterministic ALOHA clutter or
-stacked-object scene after P0. It needs a device wake predicate and a clear
-separation between graph-captured kernels and BVH/radix-sort rebuilds.
+broadphase pass. The implementation uses a device-side geometry position and
+orientation snapshot, an atomic wake predicate, and an opt-in `capture_if`
+branch. The true branch rebuilds the broadphase; the false branch reuses the
+cached collision context. The current ALOHA dynamic fixture wakes on every
+timed step, which is the correct conservative outcome for an unsettled state.
+The adapter is complete as an integration path, while a positive sleeping
+speedup remains a separate workload-design and validation task. BVH/radix-sort
+work remains outside the captured branch contract, so a later backend can
+replace the brute-force rebuild without changing the adapter interface.
+
+The feature is enabled only when both flags are set:
+
+```bash
+export MJW_HIP_SLEEPING_CAPTURE_IF=1
+export WP_HIP_CONDITIONAL_NATIVE=1
+```
+
+The default remains the existing eager/cache behavior. Set
+`MJW_HIP_BVH_CACHE=0` to create an eager rebuild baseline for the ALOHA
+benchmark.
 
 ### Deferred: `capture_switch`
 
@@ -82,12 +99,14 @@ the native headline result.
 2. A standalone conditional-while device test passes on `gfx1151`.
 3. A solver convergence test shows the same final `qpos`, `qvel`, and solver
    status as the eager path within `1e-5`.
-4. Follow-up stress coverage exercises mixed convergence and demonstrates early
-   exit across heterogeneous worlds, rather than only fixed unrolling. This is
-   a post-P0 stress gate for the next optimization pass.
+4. The ALOHA benchmark runs eager, static, and native variants with the same
+   control stimulus and records wake/sleep collision statistics. A wake
+   fraction near one is a valid conservative integration result, not a speedup.
 5. Humanoid or Unitree G1 contact throughput is measured with identical world
    count, solver settings, warm-up, and graph replay policy.
 6. The result includes logs, runtime diagnostics, source revisions and SHA256.
+7. A positive sleeping speedup is accepted only when the task reaches a stable
+   interval and the device wake fraction is reported.
 
 ## Measurement matrix
 
@@ -110,5 +129,6 @@ the eager loop on the fixed AMD395 humanoid run. The throughput ratio is 1.562x,
 runtime reduction is 35.97%, and the maximum paired state error is below
 `1e-6`. The direct handle overhead is 0.095 ms versus 0.022 ms for a static
 graph, so the optimization is valuable when it removes enough host dispatch or
-solver work to amortize the control-node cost. ALOHA is retained as a larger
-graph side result where the prototype is currently slower.
+solver work to amortize this fixed cost. The ALOHA result is reported as a
+separate wake/sleep measurement with its own checksum and is not folded into
+the humanoid headline.

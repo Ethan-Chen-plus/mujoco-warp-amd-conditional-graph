@@ -45,8 +45,8 @@
     },
     {
       "path": "scripts/inspect_mjwarp_source.py",
-      "sha256": "8bea655ebde791ee81005dadd6d8925817e89d2f38eae0f49b70bef4a0a507b2",
-      "bytes": 4094
+      "sha256": "ef5794401060ec0fb0fdd340e3c84b5d0153c6db6c527c61ae9175e25d36abf6",
+      "bytes": 4132
     },
     {
       "path": "scripts/inspect_mjwarp_state.py",
@@ -69,9 +69,19 @@
       "bytes": 5105
     },
     {
+      "path": "scripts/run_mjwarp_sleeping_benchmark.py",
+      "sha256": "68346ea42c9a3910f6f9af20ffe7418b854e00ae319cd50e2ac427f1bf63597b",
+      "bytes": 9884
+    },
+    {
       "path": "scripts/run_mjwarp_variant.py",
       "sha256": "a59d818acab49e6178359e88ad669e481e52fa9166d1663689a05667722515d9",
       "bytes": 2049
+    },
+    {
+      "path": "scripts/summarize_aloha_sleeping_if.py",
+      "sha256": "3ab0bb224868d9ce5b488e567f6fb4938662e7fab6295320f173cd245357b4d8",
+      "bytes": 3041
     },
     {
       "path": "scripts/test_hip_conditional_while_emulation.py",
@@ -80,8 +90,8 @@
     },
     {
       "path": "scripts/validate_public_bundle.py",
-      "sha256": "48180b823372a114110c710945a67ba65596357ed2ea263423d6e95f76b3ec22",
-      "bytes": 5873
+      "sha256": "85901aa4a277860b30c7d22c047685a1d8b60560014c4660d9af931da8b36975",
+      "bytes": 6170
     },
     {
       "path": "scripts/warp_gpu_smoke.py",
@@ -90,8 +100,8 @@
     },
     {
       "path": "scripts/write_manifest.py",
-      "sha256": "d8ea9f3d459bc9be4778a110bb0ee9a8b71ed7df88807665f62d8c8e5736357e",
-      "bytes": 5389
+      "sha256": "a239f322f860ca782c7232fc3f03aa30daa9ff8c60cb731571b54134dd021b3e",
+      "bytes": 5812
     },
     {
       "path": "scripts/bootstrap_amd395_env.sh",
@@ -107,6 +117,16 @@
       "path": "scripts/build_patched_hip_runtime.sh",
       "sha256": "b8b33ce0dbffe3ad11f5815daaf9174da0c84396cd7c6fd7124bde13fe00d2de",
       "bytes": 1770
+    },
+    {
+      "path": "scripts/fetch_aloha_assets.sh",
+      "sha256": "785a72031827df8b9e41f94812b9ecc581fbf616aba7627125fedc67f858fd69",
+      "bytes": 1352
+    },
+    {
+      "path": "scripts/run_aloha_sleeping_if_benchmark.sh",
+      "sha256": "8a89ccf97ac4e75e79fac2c7a8bf9cd0e70c33390f529bc931b414e3fba2c3a1",
+      "bytes": 5158
     },
     {
       "path": "scripts/run_mjwarp_amd_benchmark.sh",
@@ -140,8 +160,8 @@
     },
     {
       "path": "upstream/mujoco_warp/mujoco_warp/_src/solver.py",
-      "sha256": "671b5735ca8b5d173e3542ea47a5d95d0a5aa9350d0522bfcf2b412972d80280",
-      "bytes": 167156
+      "sha256": "f4154c637fde2a56f0c9b0d243ac8dbf9deb4462cc6351359d8130c193324f33",
+      "bytes": 167308
     },
     {
       "path": "upstream/mujoco_warp/mujoco_warp/_src/warp_util.py",
@@ -150,13 +170,13 @@
     },
     {
       "path": "upstream/warp/warp/_src/context.py",
-      "sha256": "075455e99ac54e012561e8de7ea72de67e79df8e9cf1dd4dca2a13e39ec2b785",
-      "bytes": 488103
+      "sha256": "05ff46a6202ff5371dc10c34b20c53485631a6010f67639bf2c4ca0f8ce1b3ea",
+      "bytes": 488328
     },
     {
       "path": "upstream/warp/warp/__init__.py",
-      "sha256": "bef45263cb4cb404f86313f1339acda8744e81981a2ff583b3be448bfb3c236e",
-      "bytes": 18253
+      "sha256": "18923b8fb824b58ba259fdf0666eb4e2ee39a7294a1c02641eb1da5e2b2e5309",
+      "bytes": 18368
     },
     {
       "path": "upstream/warp/warp/_src/build_dll.py",
@@ -272,6 +292,46 @@
       "path": "results/mjwarp_native_conditional_amd395/summary.json",
       "sha256": "c97fcbace8114f8bf02ff95b577153b50745d3fd9b1557aee003b337680c27a2",
       "bytes": 2014
+    },
+    {
+      "path": "results/aloha_sleeping_if_amd395_revalidation/eager.json",
+      "sha256": "9e33e902b5573d133b1bb258b3b352cbbf5d9888121cdfd6aeffacb12f47f2ee",
+      "bytes": 44300
+    },
+    {
+      "path": "results/aloha_sleeping_if_amd395_revalidation/eager_32x64_none.json",
+      "sha256": "9e33e902b5573d133b1bb258b3b352cbbf5d9888121cdfd6aeffacb12f47f2ee",
+      "bytes": 44300
+    },
+    {
+      "path": "results/aloha_sleeping_if_amd395_revalidation/native.json",
+      "sha256": "02d31d81fe71205b6a2009d90cfa6dda40999b6aa77c1ae8c6cae7a2ec77a6f5",
+      "bytes": 44387
+    },
+    {
+      "path": "results/aloha_sleeping_if_amd395_revalidation/native_32x64_none.json",
+      "sha256": "02d31d81fe71205b6a2009d90cfa6dda40999b6aa77c1ae8c6cae7a2ec77a6f5",
+      "bytes": 44387
+    },
+    {
+      "path": "results/aloha_sleeping_if_amd395_revalidation/static.json",
+      "sha256": "9d972e006cd0ec11dc56545d799eb33aa40a75390e8fe27bb4359b5b9e3d119f",
+      "bytes": 44432
+    },
+    {
+      "path": "results/aloha_sleeping_if_amd395_revalidation/static_32x64_none.json",
+      "sha256": "9d972e006cd0ec11dc56545d799eb33aa40a75390e8fe27bb4359b5b9e3d119f",
+      "bytes": 44432
+    },
+    {
+      "path": "results/aloha_sleeping_if_amd395_revalidation/summary.json",
+      "sha256": "ba6bb70fe359f294f4e2a111ec71fbceaf10c98e78efea6b441ecbd6cf35a0df",
+      "bytes": 154359
+    },
+    {
+      "path": "results/aloha_sleeping_if_amd395_manual_branch/summary.json",
+      "sha256": "d90e2c91c37cf267ad9a719dcd9c004addd8401be3559fe74abfcc11bfc9b7f6",
+      "bytes": 80267
     }
   ]
 }

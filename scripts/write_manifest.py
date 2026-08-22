@@ -97,6 +97,10 @@ def main() -> None:
             files.append({"path": str(path.relative_to(ROOT)), "sha256": sha256(path), "bytes": path.stat().st_size})
     for path in sorted((ROOT / "results/mjwarp_native_conditional_amd395").glob("*.json")):
         files.append({"path": str(path.relative_to(ROOT)), "sha256": sha256(path), "bytes": path.stat().st_size})
+    for path in sorted((ROOT / "results/aloha_sleeping_if_amd395_revalidation").glob("*.json")):
+        files.append({"path": str(path.relative_to(ROOT)), "sha256": sha256(path), "bytes": path.stat().st_size})
+    for path in sorted((ROOT / "results/aloha_sleeping_if_amd395_manual_branch").glob("*.json")):
+        files.append({"path": str(path.relative_to(ROOT)), "sha256": sha256(path), "bytes": path.stat().st_size})
     for path in sorted((ROOT / "upstream/warp/warp/bin").glob("warp*.so")):
         files.append({"path": str(path.relative_to(ROOT)), "sha256": sha256(path), "bytes": path.stat().st_size})
     manifest = {

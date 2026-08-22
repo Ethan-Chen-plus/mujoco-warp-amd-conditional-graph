@@ -1,0 +1,25 @@
+diff --git a/clr/hipamd/src/hip_graph.cpp b/clr/hipamd/src/hip_graph.cpp
+--- a/clr/hipamd/src/hip_graph.cpp
++++ b/clr/hipamd/src/hip_graph.cpp
+@@ -3298,3 +3298,4 @@
+-      if (nodeParams->conditional.handle == 0 ||
+-          nodeParams->conditional.type != hipGraphCondTypeWhile ||
+-          nodeParams->conditional.size != 1) {
++      if (nodeParams->conditional.handle == 0 ||
++          (nodeParams->conditional.type != hipGraphCondTypeIf &&
++           nodeParams->conditional.type != hipGraphCondTypeWhile) ||
++          nodeParams->conditional.size != 1) {
+@@ -3660,2 +3660,3 @@
+-      if (nodeParams->conditional.type != hipGraphCondTypeWhile ||
+-          nodeParams->conditional.size != 1 ||
++      if ((nodeParams->conditional.type != hipGraphCondTypeIf &&
++           nodeParams->conditional.type != hipGraphCondTypeWhile) ||
++          nodeParams->conditional.size != 1 ||
+diff --git a/clr/hipamd/src/hip_graph_internal.hpp b/clr/hipamd/src/hip_graph_internal.hpp
+--- a/clr/hipamd/src/hip_graph_internal.hpp
++++ b/clr/hipamd/src/hip_graph_internal.hpp
+@@ -1151,2 +1151,2 @@
+-    if (params.handle == 0 || params.phGraph_out == nullptr || params.size != 1 ||
+-        params.type != hipGraphCondTypeWhile) {
++    if (params.handle == 0 || params.phGraph_out == nullptr || params.size != 1 ||
++        (params.type != hipGraphCondTypeIf && params.type != hipGraphCondTypeWhile)) {

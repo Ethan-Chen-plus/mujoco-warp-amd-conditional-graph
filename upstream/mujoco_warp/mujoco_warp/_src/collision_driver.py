@@ -13,6 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 
+import os
 from typing import Any
 
 import warp as wp
@@ -85,6 +86,107 @@ def _zero_nacon_ncollision(
 ):
   ncollision_out[0] = 0
   nacon_out[0] = 0
+
+
+@wp.kernel
+def _restore_ncollision(
+  ncollision_cache_in: wp.array[int],
+  ncollision_out: wp.array[int],
+):
+  """Restore the cached broadphase pair count after clearing step counters."""
+  ncollision_out[0] = ncollision_cache_in[0]
+
+
+@wp.kernel
+def _detect_geom_motion(
+  # Data in:
+  geom_xpos_in: wp.array2d[wp.vec3],
+  geom_xmat_in: wp.array2d[wp.mat33],
+  previous_geom_xpos_in: wp.array2d[wp.vec3],
+  previous_geom_xmat_in: wp.array2d[wp.mat33],
+  # In:
+  position_threshold: float,
+  rotation_threshold: float,
+  # Data out:
+  previous_geom_xpos_out: wp.array2d[wp.vec3],
+  previous_geom_xmat_out: wp.array2d[wp.mat33],
+  wake_predicate_out: wp.array[int],
+):
+  """Detect geometry motion that invalidates a cached broadphase result."""
+  worldid, geomid = wp.tid()
+
+  position = geom_xpos_in[worldid, geomid]
+  previous_position = previous_geom_xpos_in[worldid, geomid]
+  position_delta = position - previous_position
+  moved = wp.dot(position_delta, position_delta) > position_threshold * position_threshold
+
+  xmat = geom_xmat_in[worldid, geomid]
+  previous_xmat = previous_geom_xmat_in[worldid, geomid]
+  for row in range(3):
+    for col in range(3):
+      rotation_delta = wp.abs(xmat[row, col] - previous_xmat[row, col])
+      if rotation_delta > rotation_threshold:
+        moved = True
+
+  if moved:
+    wp.atomic_or(wake_predicate_out, 0, 1)
+
+  previous_geom_xpos_out[worldid, geomid] = position
+  previous_geom_xmat_out[worldid, geomid] = xmat
+
+
+def _sleeping_capture_if_enabled(device: Any) -> bool:
+  """Return whether the opt-in native sleeping broadphase path is active."""
+  return (
+    device.is_hip
+    and os.environ.get("MJW_HIP_BVH_CACHE", "1") == "1"
+    and os.environ.get("MJW_HIP_SLEEPING_CAPTURE_IF", "0") == "1"
+    and os.environ.get("WP_HIP_CONDITIONAL_NATIVE", "0") == "1"
+  )
+
+
+def _bvh_cache_enabled(device: Any) -> bool:
+  """Return whether the AMD broadphase cache is enabled for this process."""
+  return device.is_hip and os.environ.get("MJW_HIP_BVH_CACHE", "1") == "1"
+
+
+def _manual_sleeping_predicate_enabled() -> bool:
+  """Return whether the benchmark supplies an explicit wake schedule."""
+  return os.environ.get("MJW_HIP_SLEEPING_MANUAL_PREDICATE", "0") == "1"
+
+
+def _update_sleeping_predicate(d: Data) -> None:
+  """Update the device predicate and geometry history before broadphase selection."""
+  if not hasattr(d, "_bvh_wake_predicate"):
+    d._bvh_wake_predicate = wp.zeros(1, dtype=int)
+    d._bvh_previous_geom_xpos = wp.zeros(d.geom_xpos.shape, dtype=wp.vec3, device=d.geom_xpos.device)
+    d._bvh_previous_geom_xmat = wp.zeros(d.geom_xmat.shape, dtype=wp.mat33, device=d.geom_xmat.device)
+    d._bvh_previous_geom_xpos.assign(d.geom_xpos)
+    d._bvh_previous_geom_xmat.assign(d.geom_xmat)
+    # The first pass must build the cache before a later pass can skip it.
+    d._bvh_wake_predicate.fill_(1)
+    return
+
+  d._bvh_wake_predicate.zero_()
+  position_threshold = float(os.environ.get("MJW_HIP_SLEEPING_POSITION_THRESHOLD", "1.0e-7"))
+  rotation_threshold = float(os.environ.get("MJW_HIP_SLEEPING_ROTATION_THRESHOLD", "1.0e-6"))
+  wp.launch(
+    _detect_geom_motion,
+    dim=(d.nworld, d.geom_xpos.shape[1]),
+    inputs=[
+      d.geom_xpos,
+      d.geom_xmat,
+      d._bvh_previous_geom_xpos,
+      d._bvh_previous_geom_xmat,
+      position_threshold,
+      rotation_threshold,
+    ],
+    outputs=[
+      d._bvh_previous_geom_xpos,
+      d._bvh_previous_geom_xmat,
+      d._bvh_wake_predicate,
+    ],
+  )
 
 
 @wp.func
@@ -796,30 +898,73 @@ def collision(m: Model, d: Data):
 
   # AMD Opt 5: Static geom pair caching.
   # For rigid robots, the broadphase pair list is nearly constant each step.
-  # Cache the collision context after the first step and reuse on subsequent steps.
-  # CRITICAL: must still run narrowphase (contact positions change each step).
-  # CRITICAL: nacon must be zeroed before narrowphase regardless.
+  # Cache the collision context after the first step and reuse it until geometry
+  # motion invalidates the cache.
   _run_broadphase = True
   device = wp.get_device()
-  if device.is_hip:
+  cache_enabled = _bvh_cache_enabled(device)
+  if cache_enabled and not hasattr(d, "_bvh_cached_ncollision"):
+    d._bvh_cached_ncollision = wp.zeros(1, dtype=int)
+  use_sleeping_if = _sleeping_capture_if_enabled(device)
+  if use_sleeping_if and not _manual_sleeping_predicate_enabled():
+    _update_sleeping_predicate(d)
+  elif use_sleeping_if and not hasattr(d, "_bvh_wake_predicate"):
+    d._bvh_wake_predicate = wp.zeros(1, dtype=int)
+    d._bvh_wake_predicate.fill_(1)
+
+  if cache_enabled:
     if hasattr(d, "_bvh_cached_ctx") and d._bvh_cached_ctx is not None:
-      # Reuse cached broadphase result
       ctx = d._bvh_cached_ctx
       _run_broadphase = False
     elif not hasattr(d, "_bvh_cached_ctx"):
       d._bvh_cached_ctx = None  # initialize flag
 
-  if _run_broadphase:
+  def rebuild_broadphase():
     if m.opt.broadphase == BroadphaseType.NXN:
       nxn_broadphase(m, d, ctx)
     else:
       sap_broadphase(m, d, ctx)
-    # Cache for next step on AMD
-    if device.is_hip:
+    if cache_enabled:
       d._bvh_cached_ctx = ctx
-  else:
-    # Reuse cached pairs — but must still zero nacon/ncollision for narrowphase
+      wp.launch(
+        _restore_ncollision,
+        dim=1,
+        inputs=[d.ncollision],
+        outputs=[d._bvh_cached_ncollision],
+      )
+
+  def reuse_broadphase():
     wp.launch(_zero_nacon_ncollision, dim=1, outputs=[d.nacon, d.ncollision])
+    wp.launch(
+      _restore_ncollision,
+      dim=1,
+      inputs=[d._bvh_cached_ncollision],
+      outputs=[d.ncollision],
+    )
+
+  if use_sleeping_if:
+    graph_active = bool(getattr(device, "is_capturing", False))
+    if graph_active:
+      # Both branches are recorded during capture. On replay the device
+      # predicate selects whether the cached broadphase is rebuilt.
+      wp.capture_if(
+        d._bvh_wake_predicate,
+        on_true=rebuild_broadphase,
+        on_false=reuse_broadphase,
+      )
+    else:
+      # The eager path remains useful for correctness checks and for runtimes
+      # without conditional graph support. This readback is deliberately not
+      # used by the native graph benchmark.
+      _run_broadphase = bool(d._bvh_wake_predicate.numpy()[0])
+      if _run_broadphase:
+        rebuild_broadphase()
+      else:
+        reuse_broadphase()
+  elif _run_broadphase:
+    rebuild_broadphase()
+  else:
+    reuse_broadphase()
 
   _narrowphase(m, d, ctx)
 

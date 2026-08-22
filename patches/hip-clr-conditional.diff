@@ -206,7 +206,8 @@ index b23952e..ae81f75 100644
        break;
 +    case hipGraphNodeTypeConditional:
 +      if (nodeParams->conditional.handle == 0 ||
-+          nodeParams->conditional.type != hipGraphCondTypeWhile ||
++          (nodeParams->conditional.type != hipGraphCondTypeIf &&
++           nodeParams->conditional.type != hipGraphCondTypeWhile) ||
 +          nodeParams->conditional.size != 1) {
 +        HIP_RETURN(hipErrorInvalidValue);
 +      }
@@ -246,7 +247,8 @@ index b23952e..ae81f75 100644
            reinterpret_cast<hip::Graph*>(nodeParams->graph.graph));
        break;
 +    case hipGraphNodeTypeConditional:
-+      if (nodeParams->conditional.type != hipGraphCondTypeWhile ||
++      if ((nodeParams->conditional.type != hipGraphCondTypeIf &&
++           nodeParams->conditional.type != hipGraphCondTypeWhile) ||
 +          nodeParams->conditional.size != 1 ||
 +          nodeParams->conditional.phGraph_out == nullptr ||
 +          nodeParams->conditional.phGraph_out[0] == nullptr) {
@@ -437,7 +439,20 @@ index 8ccab6a..4a69112 100644
 +    if (status != hipSuccess) {
 +      return status;
 +    }
++    // Match the ordinary dependency-aware graph path: EnqueueCommands() drops
++    // the node's construction reference, so retain each command until the
++    // current conditional launch has submitted all nodes.
++    std::vector<amd::Command*> retained_commands;
++    for (auto command : node->GetCommands()) {
++      if (command != nullptr) {
++        command->retain();
++        retained_commands.push_back(command);
++      }
++    }
 +    node->EnqueueCommands(node_stream);
++    for (auto command : retained_commands) {
++      command->release();
++    }
 +    if (ConditionalGraphDebugEnabled()) {
 +      std::fprintf(stderr, "[conditional-debug] linear-node-enqueued node=%p type=%d id=%d\n",
 +                   static_cast<void*>(node), static_cast<int>(node->GetType()), node->GetID());
@@ -675,6 +690,17 @@ index 8ccab6a..4a69112 100644
 +      LogError("Conditional graph requires the single-stream execution path!");
 +      return hipErrorNotSupported;
 +    }
++    if (ConditionalGraphDefaultResetEnabled()) {
++      for (auto node : topoOrder_) {
++        if (node == nullptr) {
++          return hipErrorInvalidValue;
++        }
++        status = node->ResetConditionalHandleDefault(launch_stream);
++        if (status != hipSuccess) {
++          return status;
++        }
++      }
++    }
 +    status = EnqueueConditionalGraph(launch_stream);
 +    if (status != hipSuccess) {
 +      LogError("Failed to launch conditional graph nodes!");
@@ -707,6 +733,13 @@ index d088cf3..8cc3749 100644
 +  return enabled;
 +}
 +
++inline bool ConditionalGraphDefaultResetEnabled() {
++  static const bool enabled = [] {
++    const char* value = std::getenv("HIP_GRAPH_CONDITIONAL_RESET_DEFAULT");
++    return value == nullptr || value[0] != '0';
++  }();
++  return enabled;
++}
  class Graph;
  class GraphNode;
  class GraphExec;
@@ -726,6 +759,12 @@ index d088cf3..8cc3749 100644
  hipError_t ihipGraphAddNode(hip::GraphNode* graphNode, hip::Graph* graph,
                              hip::GraphNode* const* pDependencies, size_t numDependencies,
                              bool capture = true, int devId = 0);
+@@ -301,6 +301,9 @@ class GraphNode : public hipGraphNodeDOTAttribute {
+   virtual void SetStream(hip::Stream* stream) { stream_ = stream; }
++  virtual hipError_t ResetConditionalHandleDefault(hip::Stream* stream) {
++    return hipSuccess;
++  }
+   //! Updates the grpah node with the execution stream
 @@ -630,6 +648,7 @@ class Graph {
    size_t GetNodeCount() const { return vertices_.size(); }
    /// returns all the nodes in the graph
@@ -813,6 +852,20 @@ index d088cf3..8cc3749 100644
 +
 +  GraphNode* clone() const override { return new ConditionalGraphNode(*this); }
 +
++  hipError_t ResetConditionalHandleDefault(hip::Stream* stream) override {
++    if (stream == nullptr) {
++      return hipErrorInvalidValue;
++    }
++    ConditionalHandleState state;
++    if (!GetConditionalHandleState(handle_, &state) ||
++        (state.flags & hipGraphCondAssignDefault) == 0) {
++      return hipSuccess;
++    }
++    const unsigned int default_value = state.default_value;
++    return ihipMemcpy(reinterpret_cast<void*>(handle_), &default_value, sizeof(default_value),
++                      hipMemcpyHostToDevice, *stream, false, false);
++  }
++
 +  void EnqueueCommands(hip::Stream* stream) override {
 +    if (ConditionalGraphDebugEnabled()) {
 +      std::fprintf(stderr,
@@ -841,17 +894,10 @@ index d088cf3..8cc3749 100644
 +    }
 +
 +    SetStream(stream);
-+    ConditionalHandleState state;
-+    if (GetConditionalHandleState(handle_, &state) &&
-+        (state.flags & hipGraphCondAssignDefault) != 0) {
-+      const unsigned int default_value = state.default_value;
-+      if (ihipMemcpy(reinterpret_cast<void*>(handle_), &default_value, sizeof(default_value),
-+                     hipMemcpyHostToDevice, *stream, false, false) != hipSuccess) {
-+        return;
-+      }
-+      stream->finish();
-+    }
-+
++    // Warp emits a predecessor kernel that writes the device predicate before
++    // this node. Do not reset the handle here: doing so overwrites that value
++    // at the branch boundary. Default-launch initialization belongs at graph
++    // launch entry, not inside the conditional node.
 +    unsigned int condition = 0;
 +    if (!ReadCondition(stream, &condition)) {
 +      if (ConditionalGraphDebugEnabled()) {
@@ -932,7 +978,17 @@ index d088cf3..8cc3749 100644
 +      if (node->CreateCommand(stream) != hipSuccess) {
 +        return;
 +      }
++      std::vector<amd::Command*> retained_commands;
++      for (auto command : node->GetCommands()) {
++        if (command != nullptr) {
++          command->retain();
++          retained_commands.push_back(command);
++        }
++      }
 +      node->EnqueueCommands(stream);
++      for (auto command : retained_commands) {
++        command->release();
++      }
 +    }
 +  }
 +
@@ -969,7 +1025,17 @@ index d088cf3..8cc3749 100644
 +      if (node->CreateCommand(stream) != hipSuccess) {
 +        return false;
 +      }
++      std::vector<amd::Command*> retained_commands;
++      for (auto command : node->GetCommands()) {
++        if (command != nullptr) {
++          command->retain();
++          retained_commands.push_back(command);
++        }
++      }
 +      node->EnqueueCommands(stream);
++      for (auto command : retained_commands) {
++        command->release();
++      }
 +    }
 +    if (ConditionalGraphDebugEnabled()) {
 +      std::fprintf(stderr, "[conditional-debug] body-order-done graph=%p depth=%u\\n",

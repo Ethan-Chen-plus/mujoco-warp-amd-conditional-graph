@@ -100,10 +100,10 @@ def main() -> None:
 
     broadphase_matches = records["broadphase"]["matches"]
     records["broadphase"]["interpretation"] = (
-        "The pinned snapshot has a broadphase cache path, but no capture_if token. "
-        "Treat sleeping conditional capture as the next implementation target."
+        "The collision driver contains the opt-in device wake predicate and capture_if adapter. "
+        "Verify the native runtime and ALOHA benchmark before reporting performance."
         if not any(item["pattern"] == "capture_if" for item in broadphase_matches)
-        else "A capture_if token is present; verify its device semantics before benchmarking."
+        else "A capture_if token is present; verify its device predicate semantics and benchmark artifact."
     )
 
     result = {
@@ -115,7 +115,7 @@ def main() -> None:
         "targets": records,
         "priority": {
             "p0": "solver capture_while and its HIP convergence fallback",
-            "p1": "sleeping broadphase cache followed by a native capture_if node",
+            "p1": "experimental sleeping broadphase cache with a native capture_if node",
             "deferred": "capture_switch; no main-path use found in the pinned snapshot",
         },
     }

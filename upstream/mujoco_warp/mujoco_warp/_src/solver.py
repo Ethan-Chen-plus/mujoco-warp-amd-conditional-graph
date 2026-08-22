@@ -3536,7 +3536,10 @@ def _solve(m: types.Model, d: types.Data, ctx: SolverContext):
     N_CHECK = max(1, int(os.environ.get("MJW_SOLVER_NCHECK", "3")))
     _dev = wp.get_device()
     # AMD: skip D2H sync during hipGraph capture (synchronize_stream forbidden)
-    _in_capture = getattr(d, "_hip_graph_capturing", False)
+    _in_capture = bool(
+      getattr(d, "_hip_graph_capturing", False)
+      or getattr(wp.get_device(), "is_capturing", False)
+    )
     # The pinned buffer is normally pre-allocated in put_data (outside any
     # capture window). Only lazily allocate here as a fallback, and never while
     # a graph is being captured — pinned allocation during capture is illegal.
@@ -3618,7 +3621,10 @@ def _solve_islands(m: types.Model, d: types.Data, ctx: IslandSolverContext):
     _dev = wp.get_device()
     for i in range(m.opt.iterations):
       _solver_iteration_island(m, d, ctx, nsolving)
-      if not getattr(d, "_hip_graph_capturing", False) and (i + 1) % N_CHECK == 0:
+      if not (
+        getattr(d, "_hip_graph_capturing", False)
+        or getattr(wp.get_device(), "is_capturing", False)
+      ) and (i + 1) % N_CHECK == 0:
         wp.copy(d._nsolving_host_island, nsolving)
         wp.synchronize_stream(_dev)  # stream-scoped sync: ~2µs
         if d._nsolving_host_island.numpy()[0] == 0:

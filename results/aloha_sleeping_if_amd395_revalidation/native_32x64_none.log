@@ -1,0 +1,36 @@
+Warp 1.13.0+rocm.0 initialized:
+   ROCm 7.2, HIP driver 7.2
+   Devices:
+     "cpu"      : "x86_64"
+     "cuda:0"   : "AMD Radeon Graphics" (64 GiB, gfx1151, mempool enabled)
+   Kernel cache:
+     /home/aup/.cache/warp/1.13.0+rocm.0
+Module mujoco_warp._src.smooth ac222a6 load on device 'cuda:0' took 3.30 ms  (cached)
+Module mujoco_warp._src.collision_driver 366e33c load on device 'cuda:0' took 0.61 ms  (cached)
+Module _nxn_broadphase__locals__kernel_216d21d7 216d21d load on device 'cuda:0' took 0.71 ms  (cached)
+Module ccd_kernel_builder__locals__ccd_kernel_58c202ba 58c202b load on device 'cuda:0' took 1.13 ms  (cached)
+Module ccd_kernel_builder__locals__ccd_kernel_518a5789 518a578 load on device 'cuda:0' took 1.17 ms  (cached)
+Module ccd_kernel_builder__locals__ccd_kernel_f34fc085 f34fc08 load on device 'cuda:0' took 1.14 ms  (cached)
+Module _primitive_narrowphase__locals__primitive_narrowphase_08655328 0865532 load on device 'cuda:0' took 8.17 ms  (cached)
+Module mujoco_warp._src.constraint eb0e24d load on device 'cuda:0' took 1.80 ms  (cached)
+Module _efc_contact_init__locals__kernel_732198c4 732198c load on device 'cuda:0' took 0.79 ms  (cached)
+Module _efc_contact_jac_dense__locals__kernel_1ef8a44f dca6f30 load on device 'cuda:0' took 0.78 ms  (cached)
+Module _efc_contact_update__locals__kernel_b43fbfe7 b43fbfe load on device 'cuda:0' took 0.84 ms  (cached)
+Module mujoco_warp._src.forward 9de471e load on device 'cuda:0' took 1.85 ms  (cached)
+Module mujoco_warp._src.passive 616927b load on device 'cuda:0' took 1.11 ms  (cached)
+Module mujoco_warp._src.forward 5ceccde load on device 'cuda:0' took 1.64 ms  (cached)
+Module mujoco_warp._src.support eb80ed0 load on device 'cuda:0' took 0.86 ms  (cached)
+Module batched_factor_solve_i__locals__kernel_c0236fdd af05a54 load on device 'cuda:0' took 0.79 ms  (cached)
+Module batched_factor_solve_i__locals__kernel_32eb9573 7a51a01 load on device 'cuda:0' took 0.87 ms  (cached)
+Module mujoco_warp._src.solver afb0c7e load on device 'cuda:0' took 2.67 ms  (cached)
+Module solve_init_jaref__locals__kernel_3abf1dad 3abf1da load on device 'cuda:0' took 0.79 ms  (cached)
+Module mul_m_dense__locals___mul_m_dense_aea7d9eb aea7d9e load on device 'cuda:0' took 0.74 ms  (cached)
+Module update_constraint_efc__locals__kernel_6bfb2757 6bfb275 load on device 'cuda:0' took 0.79 ms  (cached)
+Module update_constraint_gauss_cost__locals__kernel_66c131fa 66c131f load on device 'cuda:0' took 0.73 ms  (cached)
+Module update_gradient_JTDAJ_dense_tiled__locals__kernel_80e05cca 31ab147 load on device 'cuda:0' took 0.46 ms  (cached)
+Module batched_cholesky_factorize_solve__locals__kernel_78c376ab 8e9d965 load on device 'cuda:0' took 0.77 ms  (cached)
+Module linesearch_iterative__locals__kernel_0b1f28eb c8ebaf4 load on device 'cuda:0' took 0.93 ms  (cached)
+Module mujoco_warp._src.sensor 04d8f44 load on device 'cuda:0' took 1.64 ms  (cached)
+Module _tile_euler_dense__locals__euler_dense_60d87b78 8a5ea00 load on device 'cuda:0' took 0.88 ms  (cached)
+Module _tile_euler_dense__locals__euler_dense_3ed540cb c147597 load on device 'cuda:0' took 0.97 ms  (cached)
+{"converged_worlds": 32, "elapsed_s": 1.7883577002212405, "final_state_sha256": "9e70094bf9d9295bbdb376cbb668a1e0b0d09bb569a1fc7f94a98f6fa43b7651", "ncollision_p95": 3328.0, "solver_niter_p95": 4.365625, "steps": 64, "variant": "native", "wake_predicate_fraction": 1.0, "world_steps_per_second": 1145.1847691021985, "worlds": 32}

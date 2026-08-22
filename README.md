@@ -34,11 +34,21 @@ This is a **1.562x throughput speedup** and a **35.97% runtime reduction** for
 this fixed workload. The primary native evidence is
 [`results/mjwarp_native_conditional_amd395/summary.json`](results/mjwarp_native_conditional_amd395/summary.json).
 
-The result is workload-specific. On the larger ALOHA graph, the current
-prototype reaches 8,937 worlds/s versus 19,117 worlds/s for eager execution;
-that side result is retained in
-[`results/mjwarp_native_aloha_amd395.json`](results/mjwarp_native_aloha_amd395.json)
-as a boundary for the next optimization pass.
+The result is workload-specific. The ALOHA sleeping/wakeup benchmark now
+provides three directly comparable modes: eager broadphase rebuild, static
+graph reuse, and native `capture_if` branch selection. Its output records
+worlds/s, collision counts, solver iterations, final-state digests, wake
+predicates, and checksums in
+`results/aloha_sleeping_if_amd395_revalidation/`. The current ALOHA dynamic
+fixture wakes on every timed step, so it is a correctness and integration
+result, not a second speedup claim.
+
+A separate manual-predicate run exercises both native `capture_if` branches
+on AMD395: the false branch is taken for 87.5% of timed steps, all 16 worlds
+converge, and the native path reaches 1.015x the eager throughput. This is
+branch-coverage and convergence evidence rather than a physical sleeping-task
+speedup claim. See
+[`results/aloha_sleeping_if_amd395_manual_branch/summary.json`](results/aloha_sleeping_if_amd395_manual_branch/summary.json).
 
 ## What is implemented
 
@@ -100,6 +110,28 @@ WORLDS=64 STEPS=20 \
 The standard result must use the fixed protocol in
 [`docs/benchmark-protocol.md`](docs/benchmark-protocol.md), not the smoke
 configuration.
+
+### ALOHA sleeping/wakeup benchmark
+
+The ALOHA XML references the public MuJoCo Menagerie assets. Fetch them once
+into the source snapshot, then run the three-way comparison:
+
+```bash
+bash scripts/fetch_aloha_assets.sh
+HIP_CLR_LIB=/path/to/patched/libamdhip64.so \
+  bash scripts/run_aloha_sleeping_if_benchmark.sh
+```
+
+The runner uses `MJW_HIP_BVH_CACHE=0` for the eager baseline, a captured graph
+with cache reuse for the static variant, and the device-side geometry-motion
+predicate plus native `capture_if` for the native variant. The same controls,
+world count, warmup, wake interval, and rollout length are used for all three.
+The default `FIXTURE=dynamic` keeps the physical rollout intact. For a separate
+branch-overhead check after warm-up, use `STIMULUS=none FIXTURE=freeze_after_warmup`;
+that fixture is labeled as a graph-path measurement and is not a physical
+sleeping-success claim.
+The fetch script sources assets from
+[`google-deepmind/mujoco_menagerie`](https://github.com/google-deepmind/mujoco_menagerie/tree/main/aloha).
 
 To build the matching runtime from source, apply the two runtime patches and
 build `amdhip64` before rebuilding Warp:
@@ -193,6 +225,8 @@ less patches/hip-sdk-conditional.diff
   retained fixed-unroll compatibility result for historical comparison.
 - [`results/mjwarp_native_aloha_amd395.json`](results/mjwarp_native_aloha_amd395.json):
   larger-graph workload boundary.
+- [`results/aloha_sleeping_if_amd395_revalidation/summary.json`](results/aloha_sleeping_if_amd395_revalidation/summary.json):
+  three-way ALOHA `capture_if` revalidation with wake-predicate telemetry.
 - [`results/native_conditional_handle_benchmark_amd395.json`](results/native_conditional_handle_benchmark_amd395.json):
   direct conditional-node overhead measurement.
 - [`results/logs/`](results/logs/): primary benchmark and correctness logs,
@@ -200,14 +234,16 @@ less patches/hip-sdk-conditional.diff
 - [`results/SHA256SUMS`](results/SHA256SUMS): checksums for the public evidence
   bundle.
 
-## Next runtime milestones
+## Runtime status
 
-The minimal native `capture_while` handle is implemented and verified by the
-direct device test and the MuJoCo-Warp humanoid run. The next runtime milestone
-is a native `capture_if` node for sleeping broadphase work, followed by mixed
-convergence and wake/sleep workloads. The adapter keeps those extensions
-isolated from the eager fallback and records a separate result for every
-workload.
+The native `capture_while` handle is verified by the direct device test and the
+MuJoCo-Warp humanoid run. The sleeping broadphase path is implemented as an
+opt-in native `capture_if` adapter: geometry motion is detected on device, the
+wake predicate selects rebuild versus cache reuse, and the eager path is
+unchanged by default. The ALOHA runner records the wake/sleep comparison as a
+separate workload. If the predicate stays high, the broadphase is rebuilt by
+design; the result is a wake-path integration check rather than a sleeping
+speedup.
 
 See [`docs/native-conditional-node-plan.md`](docs/native-conditional-node-plan.md)
 for the proposed interface and acceptance gates.

@@ -67,6 +67,57 @@ currently reaches 8,937 worlds/s versus 19,117 worlds/s for eager execution.
 It identifies graph-build and replay overhead that must be reduced before
 claiming a universal speedup.
 
+## P1 sleeping/wakeup protocol
+
+The ALOHA benchmark uses the same MJCF, world count, warm-up, control stimulus,
+wake interval, and rollout length for all variants:
+
+| Variant | Cache policy | Graph path |
+| --- | --- | --- |
+| eager | rebuild every step | direct step calls |
+| static | reuse cached collision context | one captured graph |
+| native | device wake predicate | native `capture_if` |
+
+Run it with `scripts/fetch_aloha_assets.sh` followed by
+`scripts/run_aloha_sleeping_if_benchmark.sh`. The wrapper supports
+`STIMULUS=joint_target|none`, `WAKE_MODE=motion|manual`, and
+`FIXTURE=dynamic|freeze_after_warmup`. The default dynamic fixture preserves
+the physical rollout. The freeze fixture is a graph-path measurement after
+warm-up and must not be interpreted as a physical sleeping-task score.
+
+The AMD395 dynamic revalidation used 32 worlds, 16 warm-up steps, 64 timed
+steps, zero gravity, and no external actuator stimulus:
+
+| Variant | Worlds/s | Wake predicate | Converged worlds |
+| --- | ---: | ---: | ---: |
+| eager | 1,278.16 | n/a | 32/32 |
+| static | 1,332.28 | n/a | 32/32 |
+| native `capture_if` | 1,145.19 | 1.00 | 32/32 |
+
+The native branch executed correctly and remained conservative: every timed
+step detected geometry motion, so it rebuilt the broadphase instead of reusing
+stale pairs. This is why the dynamic ALOHA run is not presented as a speedup.
+The paired result is stored in
+`results/aloha_sleeping_if_amd395_revalidation/summary.json`.
+
+### Manual branch coverage
+
+To verify both sides of the conditional node independently from physical
+scene motion, the same runner supports `WAKE_MODE=manual` with
+`FIXTURE=freeze_after_warmup`. On AMD395, a 16-world, 128-step run toggled the
+device predicate every eight steps: the native false branch covered 87.5% of
+timed steps, all 16 worlds converged, and native throughput was 1.015x eager
+and 1.008x static. The artifact is
+`results/aloha_sleeping_if_amd395_manual_branch/summary.json`. It verifies
+branch coverage and convergence; it is not a physical sleeping-task score.
+
+The output includes elapsed time, worlds/s, collision count statistics, solver
+iteration statistics, final-state digests, wake-predicate telemetry, and
+`SHA256SUMS`. A P1 result must not replace the frozen P0 humanoid result or be
+combined with it. Cross-process final-state hashes are provenance only because
+GPU atomic ordering can vary; correctness is gated by convergence, finite
+state, collision statistics, and the explicit workload protocol.
+
 The later files named `*_revalidation.log` are retained as a shared-GPU
 repeat. They completed correctly but were slower because a long-lived policy
 service was using the same Radeon. They must not be averaged into the frozen

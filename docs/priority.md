@@ -28,17 +28,30 @@ patch and implements it in HIP/CLR. The native path is explicitly selected by
 eager path. The older fixed-unroll path is separately selected by
 `WP_HIP_CONDITIONAL_EMULATION=1`.
 
-## P1: sleeping broadphase `capture_if`
+## P1: sleeping broadphase `capture_if` — experimental adapter implemented
 
 The incremental broadphase is the next independent graph experiment. When no
 body wakes, a second broadphase pass can be skipped. This is useful for
-clutter, stacked objects, and long sleeping periods, but it is not required by
-the P0 solver deliverable. A future P1 experiment should:
+clutter, stacked objects, and long sleeping periods. The adapter now:
 
-- use a deterministic ALOHA clutter or stacked-object scene;
-- keep BVH and radix-sort rebuilds outside the captured region;
-- put the wake predicate on device;
-- measure skip rate, physics state error, and end-to-end throughput.
+- uses a deterministic ALOHA scene and control stimulus;
+- keeps broadphase rebuild work in the true branch;
+- puts the wake predicate and geometry history on device;
+- compares eager rebuild, static graph reuse, and native `capture_if`;
+- records the device wake fraction so an unsettled scene cannot be reported as
+  a sleeping speedup.
+
+The dedicated runner is `scripts/run_aloha_sleeping_if_benchmark.sh`. Its
+results are separate from the P0 solver headline and include physics state
+digests, collision statistics, solver iterations, wake-predicate telemetry,
+and SHA256 checksums. The current dynamic ALOHA run wakes every step and is
+reported as a correct integration result rather than a speedup claim.
+
+The companion manual-predicate artifact exercises the false branch for 87.5%
+of timed steps and reaches 1.015x eager throughput with 16/16 worlds
+converged. It is retained as branch-coverage evidence in
+`results/aloha_sleeping_if_amd395_manual_branch/summary.json`, not as a
+physical sleeping-task score.
 
 ## Deferred: `capture_switch`
 

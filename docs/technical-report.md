@@ -48,6 +48,9 @@ patches:
   required by the HIP runtime.
 - `mujoco_warp/_src/cli.py` performs warm-up before capture and replays the
   resulting graph for steady-state measurement.
+- `mujoco_warp/_src/collision_driver.py` maintains a device-side geometry
+  snapshot, computes a wake predicate, and routes cached broadphase work
+  through an opt-in native `capture_if` branch.
 
 The native mode is selected with:
 
@@ -88,10 +91,32 @@ telemetry is labeled shared-host telemetry.
 
 ## Workload boundary
 
-The ALOHA pot scene was measured with 64 worlds and 500 steps. Native execution
-reached 8,937 worlds/s versus 19,117 worlds/s for eager execution. The current
-prototype pays graph setup and replay overhead on this larger graph; the result
-is retained as a design constraint for the next pass.
+The earlier ALOHA pot result was measured before the sleeping/wakeup adapter was
+implemented: 64 worlds and 500 steps, with native execution at 8,937 worlds/s
+versus 19,117 worlds/s for eager execution. It remains a historical workload
+boundary, not a measurement of the new three-way sleeping benchmark.
+
+The new benchmark is defined by
+`scripts/run_aloha_sleeping_if_benchmark.sh`. It compares eager rebuild,
+static graph reuse, and native `capture_if` selection under identical control
+stimuli, and writes the result only after the ALOHA assets and patched runtime
+are available. The dynamic fixture is the physical integration check. A
+separate `freeze_after_warmup` fixture measures graph-path overhead after the
+state has been prepared, without presenting that fixture as a physical task
+score.
+
+The current AMD395 dynamic run converged all 32 worlds in all variants. The
+native branch observed a wake predicate of 1.00 and therefore rebuilt the
+broadphase on every timed step. Throughput was 1,278.16 worlds/s for eager,
+1,332.28 for static, and 1,145.19 for native. This result confirms the
+device-side predicate and conservative rebuild path; it does not claim a
+sleeping speedup for a scene that has not reached a stable interval.
+
+We also ran a manual predicate coverage fixture on AMD395. With 16 worlds and
+128 timed steps, the predicate was false for 87.5% of timed steps; all worlds
+converged, and native throughput was 1.015x eager and 1.008x static. This
+artifact confirms both conditional branches execute in the patched runtime,
+while remaining separate from the physical ALOHA result.
 
 ## Revalidation record
 
@@ -123,6 +148,7 @@ records the successful full-package import in the 3.8.1 environment.
 ## Follow-up boundary
 
 The minimal native `capture_while` handle and the full MuJoCo 3.8.1 AMD395
-throughput comparison are complete. The next extension is a native
-`capture_if` node for sleeping broadphase work; it is an independent P1 and is
-not included in the P0 claim.
+throughput comparison are complete. The native sleeping broadphase `capture_if`
+adapter is implemented as an independent P1 path. Its ALOHA result is kept
+separate from the P0 claim. A future sleeping speedup requires a task fixture
+that reaches a genuine stable interval and reports a lower wake fraction.

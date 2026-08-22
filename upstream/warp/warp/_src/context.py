@@ -9794,13 +9794,17 @@ def capture_if(
     # ensure conditional graph nodes are supported
     assert_conditional_graph_support()
 
+    # The HIP runtime resolves the gfx target from the active device.  Keep the
+    # existing numeric ABI for CUDA while passing a harmless sentinel on HIP.
+    native_graph_arch = 0 if device.is_hip else device.get_cuda_compile_arch()
+
     # insert conditional node
     graph_on_true = ctypes.c_void_p()
     graph_on_false = ctypes.c_void_p()
     if not runtime.core.wp_cuda_graph_insert_if_else(
         device.context,
         stream.cuda_stream,
-        device.get_cuda_compile_arch(),
+        native_graph_arch,
         device.get_cuda_output_format() == "ptx",
         ctypes.cast(condition.ptr, ctypes.POINTER(ctypes.c_int32)),
         None if on_true is None else ctypes.byref(graph_on_true),

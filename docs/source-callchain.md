@@ -35,10 +35,24 @@ every benchmark JSON.
 
 ## P1 sleeping broadphase
 
-The pinned collision driver has broadphase cache logic, but no production
-`capture_if` call site. A P1 port should make the wake/sleep predicate a
-device value and keep the BVH/radix-sort rebuild outside the graph capture
-window. No P1 result is mixed into the P0 benchmark.
+1. `mujoco_warp/_src/collision_driver.py::collision` updates a device-side
+   geometry position/orientation snapshot before selecting the broadphase
+   branch.
+2. `_detect_geom_motion` sets a one-element wake predicate with an atomic
+   device update and refreshes the snapshot for the next step.
+3. During graph capture, `wp.capture_if` records both `rebuild_broadphase` and
+   `reuse_broadphase`; replay selects the branch from the device predicate
+   without a host readback.
+4. The true branch rebuilds the broadphase context, while the false branch
+   clears counters and reuses the cached collision pairs. The default path is
+   unchanged unless `MJW_HIP_SLEEPING_CAPTURE_IF=1` and
+   `WP_HIP_CONDITIONAL_NATIVE=1` are both set.
+
+The ALOHA runner compares this path with eager rebuild and static graph reuse.
+`WAKE_MODE=motion` uses the device geometry predicate. `WAKE_MODE=manual` is
+reserved for branch instrumentation and does not claim physical sleeping
+correctness. Its result is kept separate from the P0 solver headline and
+reports the wake fraction explicitly.
 
 ## Source audit
 

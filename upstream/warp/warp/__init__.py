@@ -349,6 +349,7 @@ from warp._src.utils import ScopedCapture as ScopedCapture
 
 from warp._src.context import is_conditional_graph_supported as is_conditional_graph_supported
 from warp._src.context import is_conditional_graph_emulated as is_conditional_graph_emulated
+from warp._src.context import is_conditional_graph_native_experimental as is_conditional_graph_native_experimental
 
 from warp._src.context import Graph as Graph
 from warp._src.context import capture_begin as capture_begin
